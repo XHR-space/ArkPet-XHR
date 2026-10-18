@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import "./make-release-seed.mjs";
 
 const token = process.env.GH_TOKEN || "";
 const owner = "XHR-cpu123";
@@ -50,12 +51,8 @@ function includeFile(relativePath) {
     return false;
   }
   if (top === "user-data") {
-    return (
-      normalized === "user-data" ||
-      normalized === "user-data/desk-pet-state.json" ||
-      normalized === "user-data/pet-store" ||
-      normalized.startsWith("user-data/pet-store/")
-    );
+    // 本地数据目录永远不发布，发布用的是 release-seed（只含前 5 只桌宠的脱敏种子）。
+    return false;
   }
   return true;
 }

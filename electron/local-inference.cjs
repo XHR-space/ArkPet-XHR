@@ -4,12 +4,29 @@ const readline = require("node:readline");
 const { spawn } = require("node:child_process");
 
 class LocalInferenceManager {
-  constructor({ pythonPath, scriptPath, cwd, logPath }) {
+  constructor({ pythonPath, scriptPath, cwd, logPath, idleTimeoutMs }) {
     this.pythonPath = pythonPath;
     this.scriptPath = scriptPath;
     this.cwd = cwd;
     this.logPath = logPath;
     this.workers = new Map();
+    this.idleTimeoutMs = Number(idleTimeoutMs) || 10 * 60 * 1000;
+    this.cleanupTimer = setInterval(() => this.releaseIdleWorkers(), 60 * 1000);
+    this.cleanupTimer.unref?.();
+  }
+
+  releaseIdleWorkers(now = Date.now()) {
+    for (const [key, worker] of this.workers) {
+      if (!worker.ready || worker.pending.size > 0) continue;
+      const lastUsedAt = Number(worker.lastUsedAt || 0);
+      if (now - lastUsedAt < this.idleTimeoutMs) continue;
+      try {
+        worker.process?.kill();
+      } catch {
+        // The worker may have already exited.
+      }
+      this.workers.delete(key);
+    }
   }
 
   findSelectedModel(state, kind, explicitModelId = "") {
@@ -138,8 +155,15 @@ class LocalInferenceManager {
     worker.request = async (payload) => {
       await worker.startPromise;
       const requestId = worker.nextId++;
+      worker.lastUsedAt = Date.now();
       return new Promise((resolve, reject) => {
-        worker.pending.set(requestId, { resolve, reject });
+        worker.pending.set(requestId, {
+          resolve: (value) => {
+            worker.lastUsedAt = Date.now();
+            resolve(value);
+          },
+          reject
+        });
         worker.process.stdin.write(
           `${JSON.stringify({ id: requestId, ...payload })}\n`
         );
@@ -187,6 +211,10 @@ class LocalInferenceManager {
   }
 
   stopAll() {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
     for (const worker of this.workers.values()) {
       try {
         worker.process?.kill();

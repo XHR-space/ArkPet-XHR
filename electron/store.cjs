@@ -663,6 +663,10 @@ function ensureShape(raw) {
       1,
       Math.min(4, Number(module.climbMaxWindows || 2))
     );
+    module.climbMaxSteps = Math.max(
+      1,
+      Math.min(10, Number(module.climbMaxSteps || 3))
+    );
     module.hungerDecayPerMinute = Math.max(
       0,
       Number(module.hungerDecayPerMinute ?? 1)
@@ -1063,6 +1067,7 @@ module.exports = {
   Store,
   STATE_FILE,
   createDefaultState,
+  ensureShape,
   id,
   mergeDeep
 };

@@ -495,9 +495,22 @@ function MultiPetEntity({
     "idle" | "recording" | "transcribing" | "thinking" | "speaking"
   >("idle");
   const [voiceAudioSrc, setVoiceAudioSrc] = useState("");
+  const [voiceLevel, setVoiceLevel] = useState(0);
+  const [voiceTranscript, setVoiceTranscript] = useState("");
   const voiceRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
   const voiceSessionRef = useRef(0);
+  const voiceQueueRef = useRef<string[]>([]);
+  const voicePlayingRef = useRef(false);
+  const voiceVadTimerRef = useRef<number | null>(null);
+  const voiceAudioContextRef = useRef<AudioContext | null>(null);
+  const voiceMonitorStreamRef = useRef<MediaStream | null>(null);
+  const voiceMonitorRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceMonitorTimerRef = useRef<number | null>(null);
+  const voiceMonitorContextRef = useRef<AudioContext | null>(null);
+  const voiceMonitorTailRef = useRef<Blob[]>([]);
+  const voiceMonitorCaptureRef = useRef(false);
+  const voiceMonitorStartingRef = useRef(false);
   const nextVoiceLineAtRef = useRef(0);
   const voicePhaseRef = useRef<
     "idle" | "recording" | "transcribing" | "thinking" | "speaking"
@@ -510,6 +523,8 @@ function MultiPetEntity({
   const climbChainStepsRef = useRef(0);
   const climbChainHeightRef = useRef(0);
   const climbApproachTargetIdRef = useRef("");
+  const nextClimbWindowAtRef = useRef(0);
+  const climbGiveUpUntilRef = useRef(0);
   const physicsDebugRef = useRef({
     frames: 0,
     total: 0,
@@ -581,6 +596,11 @@ function MultiPetEntity({
 
   async function triggerClimbPlatform() {
     if (!climbModule) return null;
+    const requestAt = performance.now();
+    if (requestAt < nextClimbWindowAtRef.current) return null;
+    nextClimbWindowAtRef.current =
+      requestAt +
+      Math.max(1, Number(climbModule.climbJumpIntervalSeconds || 3)) * 1000;
     const result = await window.deskPet.triggerExternalModule(
       climbModule.id,
       pet.id,
@@ -1044,6 +1064,7 @@ function MultiPetEntity({
   function requestAirborneFallback(entity: PhysicsState, now: number) {
     if (
       !climbModule ||
+      performance.now() < climbGiveUpUntilRef.current ||
       entity.dragging ||
       entity.thrown ||
       entity.fallbackRequested ||
@@ -1109,9 +1130,21 @@ function MultiPetEntity({
 
     if (
       climbModule &&
+      climbGiveUpUntilRef.current <= now &&
       entity.supportY !== null &&
       entity.idleUntil <= now
     ) {
+      const maxClimbSteps = Math.max(1, Number(climbModule.climbMaxSteps || 3));
+      if (climbChainStepsRef.current >= maxClimbSteps) {
+        endClimbChain(entity, now);
+        climbGiveUpUntilRef.current =
+          now +
+          Math.max(1, Number(climbModule.climbJumpIntervalSeconds || 3)) * 1000;
+        entity.idleUntil = now + 800;
+        entity.vx = effectiveWalkSpeed * (Math.random() > 0.5 ? 1 : -1);
+        setEntityVisual("walk");
+        return;
+      }
       const currentCenterX = entity.x + width / 2;
       const upwardIcons = desktopIcons.filter(
         (icon) =>
@@ -1202,7 +1235,9 @@ function MultiPetEntity({
             return;
           }
 
-          entity.nextJumpAt = now + 1000;
+          entity.nextJumpAt =
+            now +
+            Math.max(1, Number(climbModule?.climbJumpIntervalSeconds || 3)) * 1000;
           void triggerClimbPlatform().then((platform) => {
             if (!entity.grounded || entity.dragging) return;
             if (platform) {
@@ -1600,6 +1635,11 @@ function MultiPetEntity({
             entity.supportRight = bounds.right;
             entity.supportId = "floor";
             entity.supportGraceUntil = 0;
+            climbGiveUpUntilRef.current = 0;
+            climbChainActiveRef.current = false;
+            climbChainStepsRef.current = 0;
+            climbChainHeightRef.current = 0;
+            climbApproachTargetIdRef.current = "";
             updateGroundedBehavior(entity, now, wasFalling);
           }
         } else {
@@ -1709,6 +1749,45 @@ function MultiPetEntity({
     }, 1000);
     return () => window.clearInterval(timer);
   }, [pet.voiceLines]);
+
+  useEffect(() => {
+    const unsubscribeAudio = window.deskPet.voiceAgent.onAudioChunk(
+      (payload) => {
+        if (
+          payload.sessionId &&
+          payload.sessionId !== String(voiceSessionRef.current)
+        ) {
+          return;
+        }
+        setVoicePhase("speaking");
+        enqueueVoiceChunk(payload.audioDataUrl);
+        void startVoiceMonitor();
+      }
+    );
+    const unsubscribeTranscript = window.deskPet.voiceAgent.onTranscript(
+      (payload) => {
+        if (
+          payload.sessionId &&
+          payload.sessionId !== String(voiceSessionRef.current)
+        ) {
+          return;
+        }
+        setVoiceTranscript(payload.text);
+      }
+    );
+    return () => {
+      unsubscribeAudio();
+      unsubscribeTranscript();
+    };
+  }, []);
+
+  useEffect(
+    () => () => {
+      stopVoiceVad();
+      stopVoiceMonitor();
+    },
+    []
+  );
 
   useEffect(() => {
     const unsubscribe = window.deskPet.onOverlayCommand((command) => {
@@ -1935,23 +2014,208 @@ function MultiPetEntity({
     }
   }
 
+  function playNextVoiceChunk() {
+    const next = voiceQueueRef.current.shift();
+    if (!next) {
+      voicePlayingRef.current = false;
+      return;
+    }
+    voicePlayingRef.current = true;
+    setVoiceAudioSrc(next);
+  }
+
+  function enqueueVoiceChunk(url: string) {
+    if (!url) return;
+    voiceQueueRef.current.push(url);
+    if (!voicePlayingRef.current) playNextVoiceChunk();
+  }
+
+  function clearVoiceQueue() {
+    voiceQueueRef.current = [];
+    voicePlayingRef.current = false;
+    setVoiceAudioSrc("");
+  }
+
+  function stopVoiceVad() {
+    if (voiceVadTimerRef.current !== null) {
+      window.clearInterval(voiceVadTimerRef.current);
+      voiceVadTimerRef.current = null;
+    }
+    const context = voiceAudioContextRef.current;
+    voiceAudioContextRef.current = null;
+    if (context) void context.close().catch(() => {});
+    setVoiceLevel(0);
+  }
+
+  function startVoiceVad(stream: MediaStream) {
+    stopVoiceVad();
+    try {
+      const context = new AudioContext();
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      voiceAudioContextRef.current = context;
+      const data = new Uint8Array(analyser.fftSize);
+      const startedAt = performance.now();
+      let lastVoiceAt = 0;
+      voiceVadTimerRef.current = window.setInterval(() => {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (const value of data) {
+          const centered = (value - 128) / 128;
+          sum += centered * centered;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        setVoiceLevel(Math.min(100, Math.round(rms * 320)));
+        const now = performance.now();
+        if (rms > 0.04) lastVoiceAt = now;
+        if (lastVoiceAt === 0 && now - startedAt > 4000) {
+          stopVoiceChat();
+        } else if (lastVoiceAt > 0 && now - lastVoiceAt > 700) {
+          stopVoiceChat();
+        } else if (now - startedAt > 15000) {
+          stopVoiceChat();
+        }
+      }, 80);
+    } catch {
+      // 拿不到音频上下文时退回手动点击结束。
+    }
+  }
+
+  function stopVoiceMonitor() {
+    if (voiceMonitorTimerRef.current !== null) {
+      window.clearInterval(voiceMonitorTimerRef.current);
+      voiceMonitorTimerRef.current = null;
+    }
+    const context = voiceMonitorContextRef.current;
+    voiceMonitorContextRef.current = null;
+    if (context) void context.close().catch(() => {});
+    const recorder = voiceMonitorRecorderRef.current;
+    voiceMonitorRecorderRef.current = null;
+    if (recorder && recorder.state !== "inactive") {
+      try {
+        recorder.stop();
+      } catch {
+        // 已经停止时忽略。
+      }
+    }
+    if (!voiceMonitorCaptureRef.current) {
+      voiceMonitorStreamRef.current
+        ?.getTracks()
+        .forEach((track) => track.stop());
+    }
+    voiceMonitorStreamRef.current = null;
+  }
+
+  async function handleBargeIn(stream: MediaStream) {
+    voiceSessionRef.current += 1;
+    clearVoiceQueue();
+    if (voiceMonitorTimerRef.current !== null) {
+      window.clearInterval(voiceMonitorTimerRef.current);
+      voiceMonitorTimerRef.current = null;
+    }
+    const context = voiceMonitorContextRef.current;
+    voiceMonitorContextRef.current = null;
+    if (context) void context.close().catch(() => {});
+    const recorder = voiceMonitorRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") return;
+    const sessionId = voiceSessionRef.current + 1;
+    voiceSessionRef.current = sessionId;
+    voiceMonitorCaptureRef.current = true;
+    voiceChunksRef.current = [...voiceMonitorTailRef.current];
+    voiceMonitorTailRef.current = [];
+    voiceRecorderRef.current = recorder;
+    recorder.onstop = () => {
+      stopVoiceVad();
+      voiceMonitorCaptureRef.current = false;
+      stream.getTracks().forEach((track) => track.stop());
+      void processVoiceChat(sessionId);
+    };
+    voiceMonitorRecorderRef.current = null;
+    voiceMonitorStreamRef.current = null;
+    startVoiceVad(stream);
+    setVoicePhase("recording");
+  }
+
+  async function startVoiceMonitor() {
+    if (voiceMonitorRecorderRef.current || voiceMonitorStartingRef.current) return;
+    voiceMonitorStartingRef.current = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true }
+      });
+      voiceMonitorStreamRef.current = stream;
+      voiceMonitorCaptureRef.current = false;
+      voiceMonitorTailRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (event) => {
+        if (event.data.size === 0) return;
+        if (voiceMonitorCaptureRef.current) {
+          voiceChunksRef.current.push(event.data);
+          return;
+        }
+        const tail = voiceMonitorTailRef.current;
+        tail.push(event.data);
+        while (tail.length > 2) tail.shift();
+      };
+      recorder.start(250);
+      voiceMonitorRecorderRef.current = recorder;
+
+      const context = new AudioContext();
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      voiceMonitorContextRef.current = context;
+      const data = new Uint8Array(analyser.fftSize);
+      let hits = 0;
+      voiceMonitorTimerRef.current = window.setInterval(() => {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (const value of data) {
+          const centered = (value - 128) / 128;
+          sum += centered * centered;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        if (rms > 0.06) hits += 1;
+        else hits = Math.max(0, hits - 1);
+        if (hits >= 3) {
+          hits = 0;
+          void handleBargeIn(stream);
+        }
+      }, 100);
+    } catch {
+      // 拿不到麦克风时不做打断，等它说完再继续。
+    } finally {
+      voiceMonitorStartingRef.current = false;
+    }
+  }
+
   async function startVoiceChat() {
     const sessionId = voiceSessionRef.current + 1;
     voiceSessionRef.current = sessionId;
+    clearVoiceQueue();
+    setVoiceTranscript("");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true }
+      });
       const recorder = new MediaRecorder(stream);
       voiceChunksRef.current = [];
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) voiceChunksRef.current.push(event.data);
       };
       recorder.onstop = () => {
+        stopVoiceVad();
         stream.getTracks().forEach((track) => track.stop());
         void processVoiceChat(sessionId);
       };
       voiceRecorderRef.current = recorder;
       recorder.start();
+      startVoiceVad(stream);
       setVoicePhase("recording");
+      void window.deskPet.voiceAgent.warmup().catch(() => {});
     } catch (error) {
       window.alert(
         error instanceof Error ? error.message : "无法打开麦克风。"
@@ -1978,28 +2242,26 @@ function MultiPetEntity({
       });
       const bytes = new Uint8Array(await blob.arrayBuffer());
       setVoicePhase("transcribing");
-      const transcription = await window.deskPet.voiceAgent.transcribe(bytes);
-      if (sessionId !== voiceSessionRef.current) return;
-      if (!transcription.ok || !transcription.text) {
-        throw new Error(transcription.error || "没有识别到有效语音。");
-      }
-      setVoicePhase("thinking");
-      const reply = await window.deskPet.voiceAgent.reply(transcription.text, {
-        aiModuleId: pet.modulePlugins?.aiModuleId
-      });
-      if (sessionId !== voiceSessionRef.current) return;
-      if (!reply.ok || !reply.text) {
-        throw new Error(reply.warning || "对话模型没有返回内容。");
-      }
-      setVoicePhase("speaking");
-      const audio = await window.deskPet.voiceAgent.speak(reply.text, {
+      const result = await window.deskPet.voiceAgent.turnStream(bytes, {
+        aiModuleId: pet.modulePlugins?.aiModuleId,
         voiceProfileId: pet.modulePlugins?.voiceProfileId,
-        speech: reply.speech
+        sessionId: String(sessionId)
       });
       if (sessionId !== voiceSessionRef.current) return;
-      if (audio.audioDataUrl) setVoiceAudioSrc(audio.audioDataUrl);
-      setVoicePhase("recording");
-      await startVoiceChat();
+      if (!result.ok) {
+        throw new Error(result.error || "语音对话失败。");
+      }
+      const waitForPlayback = () => {
+        if (sessionId !== voiceSessionRef.current) return;
+        if (voicePlayingRef.current || voiceQueueRef.current.length > 0) {
+          window.setTimeout(waitForPlayback, 150);
+          return;
+        }
+        stopVoiceMonitor();
+        setVoicePhase("recording");
+        void startVoiceChat();
+      };
+      waitForPlayback();
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "语音对话失败。");
       setVoicePhase("idle");
@@ -2119,12 +2381,12 @@ function MultiPetEntity({
           >
             <Mic size={15} />
             {voicePhase === "recording"
-              ? "正在录入语音，点击结束"
+              ? `正在听你说 ${voiceLevel}%（停顿会自动结束）`
               : voicePhase === "transcribing"
                 ? "正在识别…"
                 : voicePhase === "thinking"
                   ? "正在思考…"
-                  : "正在说话…"}
+                  : "正在回答…"}
           </button>
           <button
             type="button"
@@ -2132,16 +2394,34 @@ function MultiPetEntity({
             onClick={() => {
               voiceSessionRef.current += 1;
               if (voicePhase === "recording") stopVoiceChat();
+              stopVoiceVad();
+              stopVoiceMonitor();
+              clearVoiceQueue();
+              setVoiceTranscript("");
               setVoicePhase("idle");
               if (!textChatOpen) window.deskPet.setOverlayFocusable(false);
             }}
           >
             <X size={13} />
           </button>
+          {voiceTranscript && (
+            <span className="pet-voice-transcript">「{voiceTranscript}」</span>
+          )}
         </div>
       )}
       {voiceAudioSrc && (
-        <audio src={voiceAudioSrc} autoPlay onEnded={() => setVoiceAudioSrc("")} />
+        <audio
+          src={voiceAudioSrc}
+          autoPlay
+          onEnded={() => {
+            setVoiceAudioSrc("");
+            playNextVoiceChunk();
+          }}
+          onError={() => {
+            setVoiceAudioSrc("");
+            playNextVoiceChunk();
+          }}
+        />
       )}
       {textChatOpen && (
         <section

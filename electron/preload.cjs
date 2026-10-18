@@ -141,6 +141,7 @@ contextBridge.exposeInMainWorld("deskPet", {
     ipcRenderer.invoke("models:remove", modelId),
 
   testService: (service) => ipcRenderer.invoke("services:test", service),
+  voiceEngineInfo: () => ipcRenderer.invoke("voice:engine-info"),
   chat: (messages, aiModuleId) =>
     ipcRenderer.invoke("ai:chat", messages, aiModuleId),
   chatStream: (messages, aiModuleId) =>
@@ -159,7 +160,12 @@ contextBridge.exposeInMainWorld("deskPet", {
     speak: (text, options) =>
       ipcRenderer.invoke("voice-agent:speak", text, options),
     turn: (audioBytes, options) =>
-      ipcRenderer.invoke("voice-agent:turn", audioBytes, options)
+      ipcRenderer.invoke("voice-agent:turn", audioBytes, options),
+    warmup: () => ipcRenderer.invoke("voice-agent:warmup"),
+    turnStream: (audioBytes, options) =>
+      ipcRenderer.invoke("voice-agent:turn-stream", audioBytes, options),
+    onAudioChunk: (callback) => subscribe("voice-agent:audio", callback),
+    onTranscript: (callback) => subscribe("voice-agent:transcript", callback)
   },
   startTraining: (profileId) => ipcRenderer.invoke("training:start", profileId),
   openTrainingFolder: (moduleId) =>

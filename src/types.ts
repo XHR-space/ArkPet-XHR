@@ -344,6 +344,7 @@ export type CustomDialogModule = {
   climbHeightDecay?: number;
   climbJumpIntervalSeconds?: number;
   climbMaxWindows?: number;
+  climbMaxSteps?: number;
   hungerDecayPerMinute?: number;
   foodSeekIntervalSeconds?: number;
   metrics?: ModuleMetric[];
@@ -720,6 +721,12 @@ export type DeskPetApi = {
     error?: string;
   }>;
   testService: (service: "llm" | "asr" | "tts") => Promise<TestResult>;
+  voiceEngineInfo: () => Promise<{
+    device: string;
+    label: string;
+    cudaAvailable: boolean;
+    runtimes: Array<{ label: string; device: string; exists: boolean }>;
+  }>;
   chat: (
     messages: Array<{ role: "user" | "assistant"; content: string }>,
     aiModuleId?: string
@@ -764,6 +771,32 @@ export type DeskPetApi = {
       audioBytes: Uint8Array,
       options?: { voiceProfileId?: string }
     ) => Promise<VoiceAgentTurnResult>;
+    warmup: () => Promise<{ asr: boolean; tts: boolean; errors: string[] }>;
+    turnStream: (
+      audioBytes: Uint8Array,
+      options?: {
+        voiceProfileId?: string;
+        aiModuleId?: string;
+        sessionId?: string;
+      }
+    ) => Promise<{
+      ok: boolean;
+      text?: string;
+      transcript?: string;
+      spokenCount?: number;
+      error?: string;
+    }>;
+    onAudioChunk: (
+      callback: (payload: {
+        sessionId?: string;
+        index: number;
+        text: string;
+        audioDataUrl: string;
+      }) => void
+    ) => () => void;
+    onTranscript: (
+      callback: (payload: { sessionId?: string; text: string }) => void
+    ) => () => void;
   };
   startTraining: (profileId: string) => Promise<{
     ok: boolean;

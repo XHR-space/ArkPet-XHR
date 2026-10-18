@@ -161,85 +161,213 @@ async function isVoiceServiceReady(timeoutMs = 1200) {
   }
 }
 
+function resolveVoiceServiceRuntimes() {
+  const override = String(process.env.ARKPET_TTS_DEVICE || "")
+    .trim()
+    .toLowerCase();
+  const cudaPython = path.join(CUDA128_RUNTIME_DIR, "python.exe");
+  const basePython = path.join(VOICE_ENGINE_DIR, "runtime", "python.exe");
+  const candidates = [];
+  if (override !== "cpu" && fs.existsSync(cudaPython)) {
+    candidates.push({
+      pythonPath: cudaPython,
+      device: "gpu",
+      label: "GPU（CUDA 12.8 运行时）"
+    });
+  }
+  if (override !== "gpu" && fs.existsSync(basePython)) {
+    candidates.push({
+      pythonPath: basePython,
+      device: "cpu",
+      label: "CPU（内置运行时）"
+    });
+  }
+  return candidates;
+}
+
+let cudaGpuProbe = null;
+
+function hasCudaGpu() {
+  if (cudaGpuProbe !== null) return cudaGpuProbe;
+  const pythonPath = path.join(CUDA128_RUNTIME_DIR, "python.exe");
+  if (!fs.existsSync(pythonPath)) {
+    cudaGpuProbe = false;
+    return cudaGpuProbe;
+  }
+  const result = spawnSync(
+    pythonPath,
+    ["-c", "import torch;print(torch.cuda.is_available())"],
+    { encoding: "utf8", windowsHide: true, timeout: 90000 }
+  );
+  cudaGpuProbe = result.status === 0 && result.stdout.trim() === "True";
+  return cudaGpuProbe;
+}
+
+let voiceServiceDevice = "";
+let voiceServiceRuntimeLabel = "";
+
+// 新版 torch 不再从 torch.nn.functional 里带出 typing 名称，GPU 运行时需要补回这行导入。
+function ensureGpuCompatibility() {
+  const target = path.join(
+    VOICE_ENGINE_DIR,
+    "GPT_SoVITS",
+    "AR",
+    "modules",
+    "patched_mha_with_cache.py"
+  );
+  try {
+    if (!fs.existsSync(target)) return false;
+    const text = fs.readFileSync(target, "utf8");
+    if (/^from typing import /m.test(text)) return true;
+    const patched = text.replace(
+      "from torch.nn.functional import *",
+      "from torch.nn.functional import *\nfrom typing import Callable, List, Optional, Tuple, Union"
+    );
+    if (patched === text) return false;
+    fs.writeFileSync(target, patched, "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// 官方配置里 device 写死为 cpu，且 api 没有对应命令行参数，所以 GPU 模式单独生成一份配置。
+function writeGpuVoiceConfig() {
+  const sourcePath = path.join(
+    VOICE_ENGINE_DIR,
+    "GPT_SoVITS",
+    "configs",
+    "tts_infer.yaml"
+  );
+  try {
+    if (!fs.existsSync(sourcePath)) return "";
+    const text = fs.readFileSync(sourcePath, "utf8");
+    const gpuText = text.replace(/^(\s*)device:\s*cpu\s*$/gm, "$1device: cuda");
+    if (gpuText === text) return "";
+    const targetPath = path.join(
+      app.getPath("userData"),
+      "tts_infer.gpu.yaml"
+    );
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, gpuText, "utf8");
+    return targetPath;
+  } catch {
+    return "";
+  }
+}
+
+async function startVoiceServiceProcess(candidate, apiPath) {
+  if (candidate.device === "gpu") {
+    ensureGpuCompatibility();
+  }
+  let configPath = "GPT_SoVITS/configs/tts_infer.yaml";
+  if (candidate.device === "gpu") {
+    const gpuConfig = writeGpuVoiceConfig();
+    if (gpuConfig) configPath = gpuConfig;
+  }
+  const logPath = path.join(VOICE_ENGINE_ROOT, "gpt-sovits-api.log");
+  const errorLogPath = path.join(VOICE_ENGINE_ROOT, "gpt-sovits-api.err.log");
+  const stdoutFd = fs.openSync(logPath, "a");
+  const stderrFd = fs.openSync(errorLogPath, "a");
+  let spawnError = null;
+  try {
+    voiceServiceProcess = spawn(
+      candidate.pythonPath,
+      [
+        apiPath,
+        "-a",
+        "127.0.0.1",
+        "-p",
+        "9880",
+        "-c",
+        configPath
+      ],
+      {
+        cwd: VOICE_ENGINE_DIR,
+        windowsHide: true,
+        env: {
+          ...process.env,
+          ...(candidate.device === "cpu"
+            ? { CUDA_VISIBLE_DEVICES: "-1" }
+            : {})
+        },
+        stdio: ["ignore", stdoutFd, stderrFd]
+      }
+    );
+    ownsVoiceService = true;
+  } finally {
+    fs.closeSync(stdoutFd);
+    fs.closeSync(stderrFd);
+  }
+
+  voiceServiceProcess.once("error", (error) => {
+    spawnError = error;
+  });
+  voiceServiceProcess.once("exit", () => {
+    voiceServiceProcess = null;
+    ownsVoiceService = false;
+    loadedVoiceWeights = { gpt: "", sovits: "" };
+  });
+
+  const deadline = Date.now() + (candidate.device === "gpu" ? 150000 : 180000);
+  while (Date.now() < deadline) {
+    if (spawnError) {
+      stopOwnedVoiceService();
+      return { ok: false, error: spawnError.message || "进程启动失败" };
+    }
+    if (voiceServiceProcess?.exitCode !== null) {
+      stopOwnedVoiceService();
+      return { ok: false, error: "服务进程提前退出，请看语音日志" };
+    }
+    if (await isVoiceServiceReady(2500)) {
+      voiceServiceDevice = candidate.device;
+      voiceServiceRuntimeLabel = candidate.label;
+      return {
+        ok: true,
+        reused: false,
+        device: candidate.device,
+        label: candidate.label
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  stopOwnedVoiceService();
+  return { ok: false, error: "启动超时" };
+}
+
 async function ensureVoiceService() {
   if (await isVoiceServiceReady()) {
-    return { ok: true, reused: true };
+    return { ok: true, reused: true, device: voiceServiceDevice };
   }
   if (voiceServiceStartPromise) return voiceServiceStartPromise;
 
   voiceServiceStartPromise = (async () => {
-    const pythonPath = path.join(VOICE_ENGINE_DIR, "runtime", "python.exe");
     const apiPath = path.join(VOICE_ENGINE_DIR, "api_v2.py");
-    if (!fs.existsSync(pythonPath) || !fs.existsSync(apiPath)) {
+    const candidates = resolveVoiceServiceRuntimes();
+    if (!candidates.length || !fs.existsSync(apiPath)) {
       throw new Error(
         `没有找到内置 GPT-SoVITS 运行环境。请把运行环境放到：${VOICE_ENGINE_ROOT}`
       );
     }
-
-    const logPath = path.join(VOICE_ENGINE_ROOT, "gpt-sovits-api.log");
-    const errorLogPath = path.join(
-      VOICE_ENGINE_ROOT,
-      "gpt-sovits-api.err.log"
+    const failures = [];
+    for (const candidate of candidates) {
+      if (candidate.device === "gpu" && !hasCudaGpu()) {
+        failures.push(`${candidate.label}：检测不到可用显卡`);
+        continue;
+      }
+      const started = await startVoiceServiceProcess(candidate, apiPath);
+      if (started.ok) return started;
+      failures.push(`${candidate.label}：${started.error || "启动失败"}`);
+    }
+    throw new Error(
+      failures.join("；") || "GPT-SoVITS 语音服务启动失败，请查看语音日志。"
     );
-    const stdoutFd = fs.openSync(logPath, "a");
-    const stderrFd = fs.openSync(errorLogPath, "a");
-    let spawnError = null;
-    try {
-      voiceServiceProcess = spawn(
-        pythonPath,
-        [
-          apiPath,
-          "-a",
-          "127.0.0.1",
-          "-p",
-          "9880",
-          "-c",
-          "GPT_SoVITS/configs/tts_infer.yaml"
-        ],
-        {
-          cwd: VOICE_ENGINE_DIR,
-          windowsHide: true,
-          env: {
-            ...process.env,
-            CUDA_VISIBLE_DEVICES: "-1"
-          },
-          stdio: ["ignore", stdoutFd, stderrFd]
-        }
-      );
-      ownsVoiceService = true;
-    } finally {
-      fs.closeSync(stdoutFd);
-      fs.closeSync(stderrFd);
-    }
-
-    voiceServiceProcess.once("error", (error) => {
-      spawnError = error;
-    });
-    voiceServiceProcess.once("exit", () => {
-      voiceServiceProcess = null;
-      ownsVoiceService = false;
-    });
-
-    const deadline = Date.now() + 180000;
-    while (Date.now() < deadline) {
-      if (spawnError) {
-        throw spawnError;
-      }
-      if (voiceServiceProcess?.exitCode !== null) {
-        throw new Error("GPT-SoVITS CPU 服务启动失败，请查看语音日志。");
-      }
-      if (await isVoiceServiceReady(2500)) {
-        return { ok: true, reused: false };
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-    throw new Error("GPT-SoVITS CPU 服务启动超时。");
   })()
     .catch((error) => {
       stopOwnedVoiceService();
       return {
         ok: false,
-        error: error.message || "GPT-SoVITS CPU 服务启动失败。"
+        error: error.message || "GPT-SoVITS 语音服务启动失败。"
       };
     })
     .finally(() => {
@@ -272,6 +400,74 @@ function stopOwnedVoiceService() {
   }
   voiceServiceProcess = null;
   ownsVoiceService = false;
+  loadedVoiceWeights = { gpt: "", sovits: "" };
+}
+
+let loadedVoiceWeights = { gpt: "", sovits: "" };
+
+async function applyVoiceWeights(gptWeight, sovitsWeight) {
+  if (gptWeight && loadedVoiceWeights.gpt !== gptWeight) {
+    const response = await fetch(
+      `${VOICE_SERVICE_URL}/set_gpt_weights?weights_path=${encodeURIComponent(gptWeight)}`
+    );
+    if (!response.ok) throw new Error(await response.text());
+    loadedVoiceWeights.gpt = gptWeight;
+  }
+  if (sovitsWeight && loadedVoiceWeights.sovits !== sovitsWeight) {
+    const response = await fetch(
+      `${VOICE_SERVICE_URL}/set_sovits_weights?weights_path=${encodeURIComponent(sovitsWeight)}`
+    );
+    if (!response.ok) throw new Error(await response.text());
+    loadedVoiceWeights.sovits = sovitsWeight;
+  }
+}
+
+function resolveVoiceWeights(state) {
+  const localVoiceModel = (state.localModels || []).find(
+    (model) =>
+      model.id === state.localInference?.ttsModelId &&
+      model.kind === "tts" &&
+      model.status === "ready"
+  );
+  if (!localVoiceModel) return null;
+  return {
+    gptWeight: (localVoiceModel.companionPaths || []).find((filePath) =>
+      filePath.toLowerCase().endsWith(".ckpt")
+    ),
+    sovitsWeight: (localVoiceModel.companionPaths || []).find((filePath) =>
+      filePath.toLowerCase().endsWith(".pth")
+    )
+  };
+}
+
+async function primeVoiceWeights(state) {
+  const weights = resolveVoiceWeights(state);
+  if (!weights) return false;
+  await applyVoiceWeights(weights.gptWeight, weights.sovitsWeight);
+  return true;
+}
+
+function createSentenceBuffer() {
+  let buffer = "";
+  return {
+    push(chunk) {
+      buffer += String(chunk || "");
+      const sentences = [];
+      let index = buffer.search(/[。！？!?…\n；;]/);
+      while (index >= 0) {
+        const sentence = buffer.slice(0, index + 1).trim();
+        buffer = buffer.slice(index + 1);
+        if (sentence) sentences.push(sentence);
+        index = buffer.search(/[。！？!?…\n；;]/);
+      }
+      return sentences;
+    },
+    flush() {
+      const rest = buffer.trim();
+      buffer = "";
+      return rest ? [rest] : [];
+    }
+  };
 }
 
 function appendActivity(draft, type, text, petId = "") {
@@ -1631,32 +1827,10 @@ async function synthesizeWithSelectedVoice(state, text, options = {}) {
     }
     const serviceState = await ensureVoiceService();
     if (!serviceState.ok) return serviceState;
-    const localVoiceModel = (state.localModels || []).find(
-      (model) =>
-        model.id === state.localInference?.ttsModelId &&
-        model.kind === "tts" &&
-        model.status === "ready"
-    );
-    if (localVoiceModel) {
-      const gptWeight = localVoiceModel.companionPaths.find((filePath) =>
-        filePath.toLowerCase().endsWith(".ckpt")
-      );
-      const sovitsWeight = localVoiceModel.companionPaths.find((filePath) =>
-        filePath.toLowerCase().endsWith(".pth")
-      );
+    const weights = resolveVoiceWeights(state);
+    if (weights) {
       try {
-        if (gptWeight) {
-          const response = await fetch(
-            `${VOICE_SERVICE_URL}/set_gpt_weights?weights_path=${encodeURIComponent(gptWeight)}`
-          );
-          if (!response.ok) throw new Error(await response.text());
-        }
-        if (sovitsWeight) {
-          const response = await fetch(
-            `${VOICE_SERVICE_URL}/set_sovits_weights?weights_path=${encodeURIComponent(sovitsWeight)}`
-          );
-          if (!response.ok) throw new Error(await response.text());
-        }
+        await applyVoiceWeights(weights.gptWeight, weights.sovitsWeight);
       } catch (error) {
         return {
           ok: false,
@@ -2665,6 +2839,121 @@ function registerIpc() {
   ipcMain.handle("voice-agent:turn", (_event, audioBytes, options) =>
     voiceAgent.onUserAudio(audioBytes, options || {})
   );
+  ipcMain.handle("voice:engine-info", () => ({
+    device: voiceServiceDevice,
+    label: voiceServiceRuntimeLabel,
+    cudaAvailable: hasCudaGpu(),
+    runtimes: resolveVoiceServiceRuntimes().map((candidate) => ({
+      label: candidate.label,
+      device: candidate.device,
+      exists: fs.existsSync(candidate.pythonPath)
+    }))
+  }));
+  ipcMain.handle("voice-agent:warmup", async () => {
+    const state = store.get();
+    const result = { asr: false, tts: false, errors: [] };
+    try {
+      await localInference.preload(state, "asr");
+      result.asr = true;
+    } catch (error) {
+      result.errors.push(`asr: ${error?.message || "语音识别预热失败"}`);
+    }
+    try {
+      const serviceState = await ensureVoiceService();
+      if (serviceState.ok) {
+        result.tts = true;
+        await primeVoiceWeights(state).catch(() => {});
+      } else {
+        result.errors.push(
+          `tts: ${serviceState.error || "语音合成服务未就绪"}`
+        );
+      }
+    } catch (error) {
+      result.errors.push(`tts: ${error?.message || "语音合成预热失败"}`);
+    }
+    return result;
+  });
+  ipcMain.handle(
+    "voice-agent:turn-stream",
+    async (event, audioBytes, options = {}) => {
+      const sessionId = String(options?.sessionId || "");
+      const send = (channel, payload) => {
+        if (!event.sender.isDestroyed()) event.sender.send(channel, payload);
+      };
+      const transcription = await transcribeAudioBytes(audioBytes);
+      if (!transcription.ok || !transcription.text) {
+        return {
+          ok: false,
+          error: transcription.error || "没有识别到有效语音。",
+          transcription
+        };
+      }
+      send("voice-agent:transcript", {
+        sessionId,
+        text: transcription.text
+      });
+
+      const state = store.get();
+      const sentenceBuffer = createSentenceBuffer();
+      let spokenCount = 0;
+      let spokenChain = Promise.resolve();
+      const speakSentence = async (sentence) => {
+        const speech = await synthesizeWithSelectedVoice(
+          store.get(),
+          sentence,
+          options || {}
+        );
+        if (!speech.ok || !speech.audioDataUrl) return;
+        send("voice-agent:audio", {
+          sessionId,
+          index: spokenCount,
+          text: sentence,
+          audioDataUrl: speech.audioDataUrl
+        });
+        spokenCount += 1;
+      };
+      const enqueueSentence = (sentence) => {
+        spokenChain = spokenChain
+          .then(() => speakSentence(sentence))
+          .catch(() => {});
+      };
+
+      let finalText = "";
+      const aiModuleId = options?.aiModuleId;
+      if ((state.settings?.services?.llm?.mode || "local") === "api") {
+        const aiModule = resolveAiModule(state, { aiModuleId });
+        const replyState = aiModule
+          ? {
+              ...state,
+              character: aiModule.character || state.character,
+              documents: aiModule.documents || state.documents,
+              memories: aiModule.memories || state.memories
+            }
+          : state;
+        const result = await ai.chatLocalStream(
+          replyState,
+          [{ role: "user", content: transcription.text }],
+          (delta) => {
+            sentenceBuffer.push(delta).forEach(enqueueSentence);
+          }
+        );
+        finalText = String(result?.text || "");
+      } else {
+        const result = await replyWithProviders(state, transcription.text, {
+          aiModuleId
+        });
+        finalText = String(result?.text || "");
+      }
+      sentenceBuffer.flush().forEach(enqueueSentence);
+      await spokenChain;
+      return {
+        ok: Boolean(finalText),
+        text: finalText,
+        transcript: transcription.text,
+        spokenCount
+      };
+    }
+  );
 
   ipcMain.handle("training:start", (_event, profileId) => {
     const state = store.get();
@@ -3011,11 +3300,7 @@ if (!singleInstance) {
         // Voice synthesis will start it again on demand if preloading fails.
       });
     }
-    for (const kind of ["llm", "asr"]) {
-      localInference.preload(initialState, kind)?.catch(() => {
-        // The normal chat or transcription action will surface load errors.
-      });
-    }
+    // 本地模型不随启动加载：首次真正用到时再载入，空闲 10 分钟后自动释放，避免常驻内存。
     await registerAssetProtocol();
     registerIpc();
     createControlWindow();

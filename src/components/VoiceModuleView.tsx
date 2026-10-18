@@ -37,6 +37,11 @@ export function VoiceModuleView({
   const [audioSrc, setAudioSrc] = useState("");
   const [testText, setTestText] = useState("你好，我正在测试这个声音模块。");
   const [busy, setBusy] = useState(false);
+  const [engineInfo, setEngineInfo] = useState<{
+    device: string;
+    label: string;
+    cudaAvailable: boolean;
+  } | null>(null);
   const [trainingRuntime, setTrainingRuntime] = useState<{
     ready: boolean;
     progress: number;
@@ -62,6 +67,24 @@ export function VoiceModuleView({
     return () => {
       mounted = false;
       window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void window.deskPet
+      .voiceEngineInfo()
+      .then((info) => {
+        if (!mounted) return;
+        setEngineInfo({
+          device: info.device,
+          label: info.label,
+          cudaAvailable: info.cudaAvailable
+        });
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
     };
   }, []);
 
@@ -607,6 +630,15 @@ export function VoiceModuleView({
                 </button>
               </div>
               <p className="voice-training-runtime">{trainingRuntime.message}</p>
+              <p className="voice-training-runtime">
+                {engineInfo
+                  ? engineInfo.device
+                    ? `语音合成引擎：${engineInfo.label}（已加载）`
+                    : engineInfo.cudaAvailable
+                      ? "语音合成引擎：GPU 可用，首次合成时自动启用"
+                      : "语音合成引擎：CPU（未检测到可用 CUDA 显卡）"
+                  : "语音合成引擎：检测中…"}
+              </p>
             </section>
 
             <div className="voice-draft-actions">

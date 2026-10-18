@@ -121,16 +121,32 @@ jobs:
           body: |
             ArkPet-XHR ${{ steps.package.outputs.version }}
 
-            在 1.0.1 基础上叠加的功能版本，Windows 与 macOS 安装包均已提供。
+            【中文说明】
+            在 1.1.0 基础上叠加的功能与修复版本，Windows 与 macOS 安装包均已提供。
 
             主要变更：
-            - 每只桌宠拥有独立状态：精力、主动性、关系、心情、桌面陪伴时长各自成长
-            - 首页总览改为显示当前桌宠自己的状态，不再共用一套数值
-            - 属性归属模组：饥饿值由吃饭模组提供、对话能力由对话模组提供，未装配的模组不会在首页出现对应属性
-            - 首页总览新增「模块属性」卡片，只列出当前桌宠已装配模组提供的属性
-            - 「桌宠唤醒 - 角色动作」下新增角色语音：可导入 WAV 音频，并设置播放间隔与播放概率
-            - 模组区域改为随内容撑高，完整包住所有模组
-            - 全应用滚动条统一为角色列表同款细圆头样式
-            - 状态写入改为按桌宠局部更新，避免多窗口互相覆盖
+            - 语音合成改用 GPU（CUDA 12.8 / RTX 50 系 sm_120），合成速度明显提升；检测不到可用显卡时自动回退 CPU
+            - 语音对话改为按句流式合成、边说边播；打开语音即预热识别与合成，首句出声更快
+            - 语音对话支持自动断句（停顿即结束）与全双工打断（它说话时你开口即可打断）
+            - 攀爬模组修复：跳跃间隔设置真正生效，连爬达到上限后会自动下来，解绑模组立即停止攀爬
+            - 模组管理新增「最多连爬层数」设置
+            - 显示画面调试与角色大小解耦：画面宽高只控制画布，角色宽高控制角色大小
+            - 发布包不再包含本地模型与个人设置，初始只带前 5 只桌宠（种子数据约 6.5MB）
+            - 本地模型改为按需加载、空闲 10 分钟自动释放，降低常驻内存
+            - 清理调试视频、截图、日志与死代码，减小仓库与运行开销
+
+            【English】
+            A feature and fix release stacked on top of 1.1.0. Windows and macOS installers are included.
+
+            Highlights:
+            - Voice synthesis now runs on the GPU (CUDA 12.8 / sm_120 for RTX 50 series) for noticeably faster speech, with automatic CPU fallback when no supported GPU is detected.
+            - Voice chat now synthesizes sentence by sentence and plays audio while the reply is still being generated. Opening voice chat pre-warms recognition and synthesis so the first sentence starts sooner.
+            - Voice chat supports automatic end-of-speech (finishes on silence) and full-duplex barge-in (start talking while the pet speaks to interrupt it).
+            - Climb module fixes: the jump interval setting is now respected, the pet comes back down after reaching the climb limit, and unbinding the module stops climbing immediately.
+            - New "maximum climb steps" setting in the module manager.
+            - Display frame and character size are decoupled: frame width/height controls only the canvas, while character width/height controls the actual pet size.
+            - Release builds no longer ship local models or personal settings, and start with the first five pets only (about 6.5 MB of seed data).
+            - Local models now load on demand and are released after 10 minutes of inactivity, reducing resident memory.
+            - Removed debug videos, screenshots, logs and dead code to shrink both the repository and runtime overhead.
           overwrite_files: true
           files: release-files/*

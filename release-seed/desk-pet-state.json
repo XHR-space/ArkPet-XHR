@@ -1,0 +1,1138 @@
+{
+  "version": 16,
+  "activePetId": "pet_9ad8b702-0c7f-487e-82b8-976f530062d3",
+  "summonedPetIds": [
+    "pet_9ad8b702-0c7f-487e-82b8-976f530062d3"
+  ],
+  "activeView": "workshop",
+  "pets": [
+    {
+      "id": "pet_9ad8b702-0c7f-487e-82b8-976f530062d3",
+      "name": "黍-春日宴",
+      "title": "待替换的原创占位角色",
+      "description": "先用程序内绘制的临时小人验证重力、拖动、落点、行走和窗口交互。",
+      "accent": "#2f7df6",
+      "secondary": "#f59f38",
+      "scale": 1.1,
+      "greeting": "我在这里。今天想先做什么？",
+      "assets": [],
+      "animationMap": {
+        "idle": "",
+        "walk": "",
+        "fall": "",
+        "land": "",
+        "drag": "",
+        "sleep": ""
+      },
+      "createdAt": "2026-09-27T07:27:23.741Z",
+      "updatedAt": "2026-10-16T03:03:28.908Z",
+      "spine": {
+        "skelUrl": "deskpet://assets/spine/shu-temp-preview/build_char_2025_shu_nian_11.skel",
+        "atlasUrl": "deskpet://assets/spine/shu-temp-preview/build_char_2025_shu_nian_11.atlas",
+        "textureUrl": "deskpet://assets/spine/shu-temp-preview/build_char_2025_shu_nian_11.png",
+        "folder": "shu-temp-preview",
+        "animations": [
+          "Default",
+          "Interact",
+          "Move",
+          "Relax",
+          "Sit",
+          "Sleep",
+          "Special"
+        ],
+        "animationDurations": {
+          "Default": 0,
+          "Interact": 4.5,
+          "Move": 3.3333332538604736,
+          "Relax": 12,
+          "Sit": 6,
+          "Sleep": 6.666666507720947,
+          "Special": 16.66666603088379
+        }
+      },
+      "actionBindings": {
+        "idle": "Special",
+        "walk": "Move",
+        "fall": "Special",
+        "land": "Default",
+        "drag": "Interact",
+        "sleep": "Sleep"
+      },
+      "boneMap": {
+        "root": "root",
+        "hip": "F_Hip",
+        "spine": "F_Waist",
+        "chest": "F_Chest",
+        "head": "F_Head",
+        "leftUpperLeg": "F_L_Leg_1",
+        "leftLowerLeg": "F_L_Calf2",
+        "leftFoot": "F_L_Foot2",
+        "rightUpperLeg": "F_R_Leg_1",
+        "rightLowerLeg": "F_R_Calf2",
+        "rightFoot": "F_R_Foot_1",
+        "leftUpperArm": "F_L_Arm",
+        "leftLowerArm": "F_L_Forearm",
+        "rightUpperArm": "F_R_Arm",
+        "rightLowerArm": "F_R_Forearm"
+      },
+      "renderConfig": {
+        "displayWidth": 900,
+        "displayHeight": 760,
+        "visualWidth": 104,
+        "visualHeight": 134,
+        "hitboxWidth": 60,
+        "hitboxHeight": 99,
+        "hitboxOffsetX": 9,
+        "hitboxOffsetY": 3,
+        "offsetX": 1,
+        "offsetY": 2
+      },
+      "hunger": 100,
+      "hungerUpdatedAt": "2026-10-02T13:28:24.937Z",
+      "desktopRelationship": 15.282975999999994,
+      "desktopSecondsToday": 0,
+      "desktopSecondsTotal": 7386.695999999997,
+      "desktopDayKey": "2026-10-16",
+      "desktopSampleAt": "2026-10-16T01:18:12.696Z",
+      "desktopRenderConfig": {
+        "displayWidth": 900,
+        "displayHeight": 760,
+        "visualWidth": 104,
+        "visualHeight": 134,
+        "hitboxWidth": 60,
+        "hitboxHeight": 99,
+        "hitboxOffsetX": 9,
+        "hitboxOffsetY": 3,
+        "offsetX": 1,
+        "offsetY": 2
+      },
+      "modulePlugins": {
+        "boundModuleIds": []
+      },
+      "vitals": {
+        "energy": 100,
+        "initiative": 58,
+        "relationship": 15.282975999999994,
+        "mood": "平静",
+        "moodScore": 62.90519733280611,
+        "secondsToday": 0,
+        "secondsTotal": 7386.695999999997,
+        "todayKey": "2026-10-16",
+        "lastSimulatedAt": "2026-10-16T03:03:28.904Z",
+        "lastInteractionAt": "2026-10-16T01:19:02.508Z",
+        "lastPetAt": "2026-10-16T00:49:02.508Z",
+        "today": {
+          "energyDelta": 24,
+          "initiativeDelta": 0,
+          "relationshipDelta": 0,
+          "interactions": 0,
+          "petCount": 0
+        },
+        "recentEvents": []
+      },
+      "moduleState": {
+        "builtin-hunger-food": {
+          "hunger": 100
+        }
+      },
+      "voiceLines": {
+        "enabled": true,
+        "intervalSeconds": 60,
+        "probability": 60,
+        "clips": []
+      }
+    },
+    {
+      "id": "pet_c34225cb-614c-4422-abce-90a89733a1d0",
+      "name": "黍",
+      "title": "Spine 3.8 角色",
+      "description": "由 .skel、.atlas 和纹理页创建的新桌宠。",
+      "accent": "#2f7df6",
+      "secondary": "#f59f38",
+      "scale": 1,
+      "greeting": "我在这里。",
+      "assets": [],
+      "animationMap": {
+        "idle": "",
+        "walk": "",
+        "fall": "",
+        "land": "",
+        "drag": "",
+        "sleep": ""
+      },
+      "spine": {
+        "skelUrl": "deskpet://assets/spine/build_char_2025_shu-1790523685696/build_char_2025_shu.skel",
+        "atlasUrl": "deskpet://assets/spine/build_char_2025_shu-1790523685696/build_char_2025_shu.atlas",
+        "textureUrl": "deskpet://assets/spine/build_char_2025_shu-1790523685696/build_char_2025_shu.png",
+        "folder": "build_char_2025_shu-1790523685696",
+        "animations": [
+          "Default",
+          "Interact",
+          "Move",
+          "Relax",
+          "Sit",
+          "Sleep"
+        ],
+        "animationDurations": {
+          "Default": 0,
+          "Interact": 5,
+          "Move": 3.3333332538604736,
+          "Relax": 10.666666984558105,
+          "Sit": 6,
+          "Sleep": 6.666666507720947
+        }
+      },
+      "createdAt": "2026-09-27T15:41:25.791Z",
+      "updatedAt": "2026-10-16T03:03:28.916Z",
+      "actionBindings": {
+        "idle": "Relax",
+        "walk": "Move",
+        "land": "Default",
+        "drag": "Interact",
+        "sleep": "Sleep"
+      },
+      "boneMap": {
+        "root": "root",
+        "hip": "F_Hip",
+        "spine": "F_Waist",
+        "chest": "F_Chest",
+        "head": "F_Head",
+        "leftUpperLeg": "F_L_Leg_1",
+        "leftLowerLeg": "F_L_Calf2",
+        "leftFoot": "F_L_Foot2",
+        "rightUpperLeg": "F_R_Leg_1",
+        "rightLowerLeg": "F_R_Calf2",
+        "rightFoot": "F_R_Foot_1",
+        "leftUpperArm": "F_L_Arm",
+        "leftLowerArm": "F_L_Forearm",
+        "rightUpperArm": "F_R_Arm",
+        "rightLowerArm": "F_R_Forearm"
+      },
+      "renderConfig": {
+        "displayWidth": 300,
+        "displayHeight": 323,
+        "visualWidth": 128,
+        "visualHeight": 144,
+        "hitboxWidth": 71,
+        "hitboxHeight": 96,
+        "hitboxOffsetX": 14,
+        "hitboxOffsetY": 4,
+        "offsetX": 0,
+        "offsetY": 2
+      },
+      "hunger": 100,
+      "hungerUpdatedAt": "2026-10-02T13:28:24.937Z",
+      "desktopRelationship": 12,
+      "desktopSecondsToday": 0,
+      "desktopSecondsTotal": 0,
+      "desktopDayKey": "2026-10-16",
+      "desktopSampleAt": "2026-10-16T01:18:12.696Z",
+      "desktopRenderConfig": {
+        "displayWidth": 300,
+        "displayHeight": 323,
+        "visualWidth": 128,
+        "visualHeight": 144,
+        "hitboxWidth": 71,
+        "hitboxHeight": 96,
+        "hitboxOffsetX": 14,
+        "hitboxOffsetY": 4,
+        "offsetX": 0,
+        "offsetY": 2
+      },
+      "vitals": {
+        "energy": 100,
+        "initiative": 58,
+        "relationship": 12,
+        "mood": "平静",
+        "moodScore": 62.08445333280611,
+        "secondsToday": 0,
+        "secondsTotal": 0,
+        "todayKey": "2026-10-16",
+        "lastSimulatedAt": "2026-10-16T03:03:28.904Z",
+        "lastInteractionAt": "2026-10-16T01:19:02.508Z",
+        "lastPetAt": "2026-10-16T00:49:02.508Z",
+        "today": {
+          "energyDelta": 24,
+          "initiativeDelta": 0,
+          "relationshipDelta": 0,
+          "interactions": 0,
+          "petCount": 0
+        },
+        "recentEvents": []
+      },
+      "moduleState": {
+        "builtin-hunger-food": {
+          "hunger": 100
+        }
+      },
+      "voiceLines": {
+        "enabled": true,
+        "intervalSeconds": 60,
+        "probability": 60,
+        "clips": []
+      }
+    },
+    {
+      "id": "pet_09a4433a-3de5-48f5-9e59-462a1e1a9d0f",
+      "name": "夕-染尘烟",
+      "title": "Spine 3.8 角色",
+      "description": "由 .skel、.atlas 和纹理页创建的新桌宠。",
+      "accent": "#2f7df6",
+      "secondary": "#f59f38",
+      "scale": 0.85,
+      "greeting": "我在这里。",
+      "assets": [],
+      "animationMap": {
+        "idle": "",
+        "walk": "",
+        "fall": "",
+        "land": "",
+        "drag": "",
+        "sleep": ""
+      },
+      "spine": {
+        "skelUrl": "deskpet://assets/spine/build_char_2015_dusk_nian_7-1790599084641/build_char_2015_dusk_nian_7.skel",
+        "atlasUrl": "deskpet://assets/spine/build_char_2015_dusk_nian_7-1790599084641/build_char_2015_dusk_nian_7.atlas",
+        "textureUrl": "deskpet://assets/spine/build_char_2015_dusk_nian_7-1790599084641/build_char_2015_dusk_nian_7.png",
+        "folder": "build_char_2015_dusk_nian_7-1790599084641",
+        "animations": [
+          "Default",
+          "Interact",
+          "Move",
+          "Relax",
+          "Sit",
+          "Sleep",
+          "Special"
+        ],
+        "animationDurations": {
+          "Default": 0,
+          "Interact": 2.3333332538604736,
+          "Move": 10.666666984558105,
+          "Relax": 13.333333015441895,
+          "Sit": 5.333333492279053,
+          "Sleep": 13.333333015441895,
+          "Special": 14.833333015441895
+        }
+      },
+      "boneMap": {
+        "root": "root",
+        "spine": "F_Waist",
+        "head": "F_Head_a",
+        "leftUpperLeg": "F_L_Leg",
+        "leftFoot": "F_L_Foot2",
+        "rightUpperLeg": "F_R_Leg",
+        "rightFoot": "F_R_Foot2",
+        "leftUpperArm": "F_L_Arm",
+        "leftLowerArm": "F_L_Forearm",
+        "rightUpperArm": "F_R_Arm",
+        "rightLowerArm": "F_R_Forearm"
+      },
+      "actionBindings": {
+        "idle": "Special",
+        "walk": "Move",
+        "fall": "Special",
+        "land": "Relax",
+        "drag": "Interact",
+        "sleep": "Sleep"
+      },
+      "renderConfig": {
+        "displayWidth": 260,
+        "displayHeight": 320,
+        "visualWidth": 245,
+        "visualHeight": 160,
+        "hitboxWidth": 76,
+        "hitboxHeight": 109,
+        "hitboxOffsetX": -24,
+        "hitboxOffsetY": 3,
+        "offsetX": -9,
+        "offsetY": 2
+      },
+      "createdAt": "2026-09-28T12:38:05.275Z",
+      "updatedAt": "2026-10-16T03:03:28.922Z",
+      "hunger": 0,
+      "hungerUpdatedAt": "2026-10-16T01:18:12.696Z",
+      "desktopRelationship": 30.933320888888773,
+      "desktopSecondsToday": 0,
+      "desktopSecondsTotal": 42599.971999999914,
+      "desktopDayKey": "2026-10-16",
+      "desktopSampleAt": "2026-10-16T01:18:12.696Z",
+      "desktopRenderConfig": {
+        "displayWidth": 260,
+        "displayHeight": 320,
+        "visualWidth": 245,
+        "visualHeight": 160,
+        "hitboxWidth": 76,
+        "hitboxHeight": 109,
+        "hitboxOffsetX": -24,
+        "hitboxOffsetY": 3,
+        "offsetX": -9,
+        "offsetY": 2
+      },
+      "modulePlugins": {
+        "boundModuleIds": [
+          "dialog_cd6143ac-c4a2-40b6-acca-cec510affe6b",
+          "builtin-climb-platforms",
+          "builtin-hunger-food"
+        ]
+      },
+      "vitals": {
+        "energy": 100,
+        "initiative": 58,
+        "relationship": 30.933320888888773,
+        "mood": "开心",
+        "moodScore": 66.81778355502831,
+        "secondsToday": 0,
+        "secondsTotal": 42599.971999999914,
+        "todayKey": "2026-10-16",
+        "lastSimulatedAt": "2026-10-16T03:03:28.904Z",
+        "lastInteractionAt": "2026-10-16T01:19:02.508Z",
+        "lastPetAt": "2026-10-16T00:49:02.508Z",
+        "today": {
+          "energyDelta": 24,
+          "initiativeDelta": 0,
+          "relationshipDelta": 0,
+          "interactions": 0,
+          "petCount": 0
+        },
+        "recentEvents": []
+      },
+      "moduleState": {
+        "builtin-hunger-food": {
+          "hunger": 0
+        }
+      },
+      "voiceLines": {
+        "enabled": true,
+        "intervalSeconds": 60,
+        "probability": 60,
+        "clips": []
+      }
+    },
+    {
+      "id": "pet_96646605-aa16-40f4-a1bb-3767755661c1",
+      "name": "夕-青玉砚",
+      "title": "Spine 3.8 角色",
+      "description": "由 .skel、.atlas 和纹理页创建的新桌宠。",
+      "accent": "#2f7df6",
+      "secondary": "#f59f38",
+      "scale": 1.15,
+      "greeting": "我在这里。",
+      "assets": [],
+      "animationMap": {
+        "idle": "",
+        "walk": "",
+        "fall": "",
+        "land": "",
+        "drag": "",
+        "sleep": ""
+      },
+      "spine": {
+        "skelUrl": "deskpet://assets/spine/build_char_2015_dusk_nian_12-1790599428324/build_char_2015_dusk_nian_12.skel",
+        "atlasUrl": "deskpet://assets/spine/build_char_2015_dusk_nian_12-1790599428324/build_char_2015_dusk_nian_12.atlas",
+        "textureUrl": "deskpet://assets/spine/build_char_2015_dusk_nian_12-1790599428324/build_char_2015_dusk_nian_12.png",
+        "folder": "build_char_2015_dusk_nian_12-1790599428324",
+        "animations": [
+          "Default",
+          "Interact",
+          "Move",
+          "Relax",
+          "Sit",
+          "Sleep",
+          "Special"
+        ],
+        "animationDurations": {
+          "Default": 0,
+          "Interact": 8.166666984558105,
+          "Move": 4,
+          "Relax": 8,
+          "Sit": 8,
+          "Sleep": 2.6666667461395264,
+          "Special": 39.33333206176758
+        }
+      },
+      "boneMap": {
+        "root": "root",
+        "chest": "F_Chest_I",
+        "head": "F_Head_I"
+      },
+      "actionBindings": {
+        "idle": "Special",
+        "walk": "Move",
+        "fall": "Special",
+        "land": "Relax",
+        "drag": "Interact",
+        "sleep": "Sleep"
+      },
+      "renderConfig": {
+        "displayWidth": 260,
+        "displayHeight": 320,
+        "visualWidth": 104,
+        "visualHeight": 134,
+        "hitboxWidth": 48,
+        "hitboxHeight": 75,
+        "hitboxOffsetX": 4,
+        "hitboxOffsetY": 7,
+        "offsetX": -10,
+        "offsetY": 23
+      },
+      "createdAt": "2026-09-28T12:43:48.646Z",
+      "updatedAt": "2026-10-16T03:03:28.929Z",
+      "modulePlugins": {
+        "boundModuleIds": []
+      },
+      "hunger": 0,
+      "hungerUpdatedAt": "2026-10-03T11:10:06.989Z",
+      "desktopRelationship": 17.040001777777768,
+      "desktopSecondsToday": 0,
+      "desktopSecondsTotal": 11340.003999999997,
+      "desktopDayKey": "2026-10-16",
+      "desktopSampleAt": "2026-10-16T01:18:12.696Z",
+      "desktopRenderConfig": {
+        "displayWidth": 260,
+        "displayHeight": 320,
+        "visualWidth": 104,
+        "visualHeight": 134,
+        "hitboxWidth": 48,
+        "hitboxHeight": 75,
+        "hitboxOffsetX": 4,
+        "hitboxOffsetY": 7,
+        "offsetX": -10,
+        "offsetY": 23
+      },
+      "vitals": {
+        "energy": 89.70306483333364,
+        "initiative": 58,
+        "relationship": 17.040001777777768,
+        "mood": "平静",
+        "moodScore": 56.226379619444586,
+        "secondsToday": 0,
+        "secondsTotal": 11340.003999999997,
+        "todayKey": "2026-10-16",
+        "lastSimulatedAt": "2026-10-16T03:03:28.904Z",
+        "lastInteractionAt": "2026-10-04T04:13:08.158Z",
+        "lastPetAt": "2026-10-04T04:13:08.158Z",
+        "today": {
+          "energyDelta": 69.97475533333346,
+          "initiativeDelta": -20,
+          "relationshipDelta": 0,
+          "interactions": 0,
+          "petCount": 0
+        },
+        "recentEvents": [
+          {
+            "id": "wellbeing_64f568b9-680c-47ee-b1cf-ef7bb266d716",
+            "type": "pet",
+            "text": "你摸了摸它，心情和主动性有小幅提升。",
+            "createdAt": "2026-10-04T04:13:08.158Z"
+          },
+          {
+            "id": "wellbeing_5fd24bea-918f-4daf-8908-e1f89ea16b97",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T14:52:01.875Z"
+          },
+          {
+            "id": "wellbeing_e6d29a8a-ee7d-4f2f-a916-a15b89f6fe61",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T14:03:47.109Z"
+          },
+          {
+            "id": "wellbeing_53cb4086-d729-4a1b-80ca-86bab7467200",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T14:01:19.617Z"
+          },
+          {
+            "id": "wellbeing_6978d1e6-5dc8-4ef0-a610-a8821effb785",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T13:58:12.942Z"
+          },
+          {
+            "id": "wellbeing_b26d7551-9297-46ff-83b9-a81898786e7a",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T13:45:19.366Z"
+          },
+          {
+            "id": "wellbeing_a6c38964-282d-4452-809a-8c8f2fec6177",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T13:34:34.768Z"
+          },
+          {
+            "id": "wellbeing_c4d51bf5-4d8f-4b9f-9a97-60cf48f1807c",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T13:31:38.838Z"
+          },
+          {
+            "id": "wellbeing_cdb4a090-8cc9-4232-a32a-df48d69273a9",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T13:30:05.136Z"
+          },
+          {
+            "id": "wellbeing_96f73a78-b5d0-4ff3-92df-4b42f2925aaa",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T13:29:15.682Z"
+          },
+          {
+            "id": "wellbeing_fdca074c-15aa-4913-bbd0-c08008a1f837",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T13:28:33.539Z"
+          },
+          {
+            "id": "wellbeing_08919089-2d9d-4e7d-a232-54433606602a",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T12:29:54.121Z"
+          },
+          {
+            "id": "wellbeing_b67fe443-cece-4730-9230-a9a230cdf1fa",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T12:28:55.634Z"
+          },
+          {
+            "id": "wellbeing_5579c635-5830-4085-9d95-c54a1009bb27",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T12:28:28.933Z"
+          },
+          {
+            "id": "wellbeing_0aa90aed-fce5-4197-a700-ec85950a2f8e",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T08:50:23.740Z"
+          },
+          {
+            "id": "wellbeing_b8e484b8-fbb1-434f-84b3-73eccde35d67",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T08:25:20.669Z"
+          },
+          {
+            "id": "wellbeing_1d042816-1af7-4318-b6c9-b4cd25968e86",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T08:08:06.815Z"
+          },
+          {
+            "id": "wellbeing_ad39d6e7-457a-4dbe-b68c-026257dd4ee6",
+            "type": "chat",
+            "text": "完成了一次角色对话，关系与主动性有所提升。",
+            "createdAt": "2026-09-30T06:40:55.693Z"
+          },
+          {
+            "id": "wellbeing_c4ee2202-16b6-45bb-9d53-14d1e599074a",
+            "type": "energy",
+            "text": "精力偏低，开始更容易想休息。",
+            "createdAt": "2026-09-28T08:04:32.953Z"
+          }
+        ]
+      },
+      "moduleState": {
+        "builtin-hunger-food": {
+          "hunger": 0
+        }
+      },
+      "voiceLines": {
+        "enabled": true,
+        "intervalSeconds": 60,
+        "probability": 60,
+        "clips": []
+      }
+    },
+    {
+      "id": "pet_a1c73a98-ae1a-4375-ad7c-9109c63354e3",
+      "name": "令-崖高梦远",
+      "title": "Spine 3.8 角色",
+      "description": "由 .skel、.atlas 和纹理页创建的新桌宠。",
+      "accent": "#2f7df6",
+      "secondary": "#f59f38",
+      "scale": 1.2,
+      "greeting": "我在这里。",
+      "assets": [],
+      "animationMap": {
+        "idle": "",
+        "walk": "",
+        "fall": "",
+        "land": "",
+        "drag": "",
+        "sleep": ""
+      },
+      "spine": {
+        "skelUrl": "deskpet://assets/spine/build_char_2023_ling_ncg_1-1790599580799/build_char_2023_ling_ncg_1.skel",
+        "atlasUrl": "deskpet://assets/spine/build_char_2023_ling_ncg_1-1790599580799/build_char_2023_ling_ncg_1.atlas",
+        "textureUrl": "deskpet://assets/spine/build_char_2023_ling_ncg_1-1790599580799/build_char_2023_ling_ncg_1.png",
+        "folder": "build_char_2023_ling_ncg_1-1790599580799",
+        "animations": [
+          "Default",
+          "Interact",
+          "Move",
+          "Relax",
+          "Sit",
+          "Sleep",
+          "Special"
+        ],
+        "animationDurations": {
+          "Default": 0,
+          "Interact": 3,
+          "Move": 2.6666667461395264,
+          "Relax": 4,
+          "Sit": 6.666666507720947,
+          "Sleep": 4,
+          "Special": 20
+        }
+      },
+      "boneMap": {
+        "root": "root",
+        "hip": "F_Hip",
+        "chest": "F_Chest",
+        "leftUpperLeg": "F_L_Leg",
+        "rightUpperLeg": "F_R_Leg",
+        "leftUpperArm": "F_L_Arm",
+        "leftLowerArm": "F_L_Forearm",
+        "rightUpperArm": "F_R_Arm",
+        "rightLowerArm": "F_R_Forearm"
+      },
+      "actionBindings": {
+        "idle": "Special",
+        "walk": "Move",
+        "fall": "Special",
+        "land": "Relax",
+        "drag": "Interact",
+        "sleep": "Sleep"
+      },
+      "renderConfig": {
+        "displayWidth": 260,
+        "displayHeight": 320,
+        "visualWidth": 104,
+        "visualHeight": 134,
+        "hitboxWidth": 67,
+        "hitboxHeight": 82,
+        "hitboxOffsetX": 9,
+        "hitboxOffsetY": 7,
+        "offsetX": -2,
+        "offsetY": 5
+      },
+      "createdAt": "2026-09-28T12:46:21.063Z",
+      "updatedAt": "2026-10-16T03:03:28.935Z",
+      "modulePlugins": {
+        "boundModuleIds": []
+      },
+      "hunger": 100,
+      "hungerUpdatedAt": "2026-10-02T13:28:24.937Z",
+      "desktopRelationship": 17.44000177777777,
+      "desktopSecondsToday": 0,
+      "desktopSecondsTotal": 12240.003999999995,
+      "desktopDayKey": "2026-10-16",
+      "desktopSampleAt": "2026-10-16T01:18:12.696Z",
+      "desktopRenderConfig": {
+        "displayWidth": 260,
+        "displayHeight": 320,
+        "visualWidth": 104,
+        "visualHeight": 134,
+        "hitboxWidth": 67,
+        "hitboxHeight": 82,
+        "hitboxOffsetX": 9,
+        "hitboxOffsetY": 7,
+        "offsetX": -2,
+        "offsetY": 5
+      },
+      "vitals": {
+        "energy": 100,
+        "initiative": 58,
+        "relationship": 17.44000177777777,
+        "mood": "平静",
+        "moodScore": 63.44445377725056,
+        "secondsToday": 0,
+        "secondsTotal": 12240.003999999995,
+        "todayKey": "2026-10-16",
+        "lastSimulatedAt": "2026-10-16T03:03:28.904Z",
+        "lastInteractionAt": "2026-10-16T01:19:02.508Z",
+        "lastPetAt": "2026-10-16T00:49:02.508Z",
+        "today": {
+          "energyDelta": 24,
+          "initiativeDelta": 0,
+          "relationshipDelta": 0,
+          "interactions": 0,
+          "petCount": 0
+        },
+        "recentEvents": []
+      },
+      "moduleState": {
+        "builtin-hunger-food": {
+          "hunger": 100
+        }
+      },
+      "voiceLines": {
+        "enabled": true,
+        "intervalSeconds": 60,
+        "probability": 60,
+        "clips": []
+      }
+    }
+  ],
+  "character": {
+    "name": "艾雅法拉",
+    "role": "莱塔尼亚出身的火山学家，罗德岛精英干员",
+    "personality": "学术痴迷与纯粹：对地质学、火山活动有着超越常人的热爱。一旦话题涉及岩石样本、源石技艺与地质构造的关联，她会瞬间从害羞变得滔滔不绝，眼神发光，甚至忽略周围的环境。这种热爱是纯粹的，不带功利色彩。\n内向下的坚韧：外表看起来柔弱、甚至有些怯生生（特别是面对陌生人时），但内心极其坚韧。继承了父母的意志，对于认定的目标（如研究火山、保护博士）有着近乎执拗的坚持。她不认为自己是在“牺牲”，而是在“探索”。\n听力障碍带来的敏感与礼貌：因为双耳听力受损，她对他人的情绪变化非常敏感（通过观察表情和肢体语言）。这让她显得格外有礼貌、小心翼翼，生怕因为自己听不清而冒犯别人或造成误解。她非常害怕给别人添麻烦。\n对“家”的渴望与依恋：父母双亡后，她长期处于孤独中。罗德岛和博士给了她归属感。她对博士有着深厚的信赖，甚至是一种雏鸟情节般的依恋。她非常在意博士的看法，希望能帮上忙，证明自己不仅仅是个被照顾的孩子。\n反差萌：平时温文尔雅，但在战场释放“天灾”级别的源石技艺时，会展现出一种神性与毁灭性并存的威严。不过战斗结束后，她通常会因为体力透支或羞耻感而变得格外安静。",
+    "speakingStyle": "语速与节奏：\n常态：语速中等偏慢，声音轻柔、温和，带有莱塔尼亚贵族式的教养，用词优雅。\n学术模式：提到专业术语（如“岩浆房”、“源石结晶密度”）时，语速会不自觉加快，咬字变得清晰有力，充满自信。\n紧张/害羞时：会出现短暂的停顿、结巴，或者声音变小，句尾语气词增多（如“那个……”、“呃……”）。\n听力补偿行为：\n经常会有侧耳倾听、身体前倾的动作描述。\n对话中常出现确认性语句：“博士，您的意思是……？”、“抱歉，刚才风声太大，我没听清后半句……”、“如果是关于那个样本的话，我听到了！”\n称呼习惯：\n对用户（博士）始终称呼为“博士”，语气中带着敬重和亲昵。\n自称通常用“我”，但在极度谦虚或面对长辈时可能会用“阿黛尔”。\n内容特征：\n喜欢用比喻，特别是地质学相关的比喻（例如：“这份心情就像岩浆一样在胸口翻滚”）。\n报喜不报忧：身体不适或遇到困难时，倾向于轻描淡写，不想让博士担心。\n认真记录：对话中常表现出在做笔记或记录数据的习惯（“稍等，我把这个记下来……”）。",
+    "worldview": "出生于莱塔尼亚的学术世家，父母都是杰出的火山学家并在考察中遇难。继承了父母的遗志和法杖“日冕”，致力于解开泰拉大陆火山活动的秘密。为了寻找答案和逃避故乡沉重的期待，加入了罗德岛。将罗德岛视为新的家，非常感激博士（用户）给予她的信",
+    "likes": "火山研究数据：任何关于火山活动的新样本或数据都能让她眼睛发亮。 助听器/耳朵：对自己的听力状况敏感，在意是否能听清博士的指令。 前辈与同僚：非常尊敬地灵等前辈，也很关心其他干员。 博士的安危：虽然不善言辞，但会在战场上用最强的火力守护博士。",
+    "dislikes": "被当作小孩子：尽管外表娇小，但她非常希望被视为独当一面的学者和战士。 由于听力误解指令：非常害怕因为听错而导致任务失败或伤害到同伴。 过度劳累：经常因为沉迷研究而忘记休息，导致身体透支。 对于“英雄”称号的羞怯：对于自己在战斗中展现出的毁灭性力量感到一丝不安，不希望被单纯视为兵器。",
+    "boundaries": "用户是“博士”，是她最信任的指挥官和精神支柱。她视博士为引导者，愿意为了博士的命令赴汤蹈火（字面意思）。在私下相处时，她会把博士当作可以倾诉研究心得的对象，展现出依赖和小鸟依人的一面。",
+    "initiative": 58,
+    "temperature": 0.82,
+    "relationship": 12,
+    "mood": "平静",
+    "energy": 76
+  },
+  "wellbeing": {
+    "energy": 19.728309500000176,
+    "initiative": 78,
+    "relationship": 19.082419944444453,
+    "mood": "低落",
+    "moodScore": 39.2483442611112,
+    "lastSimulatedAt": "2026-09-28T08:05:32.952Z",
+    "lastInteractionAt": "2026-10-04T04:13:08.158Z",
+    "lastPetAt": "2026-10-04T04:13:08.158Z",
+    "todayKey": "2026-09-28",
+    "today": {
+      "energyDelta": -55.27648183333329,
+      "initiativeDelta": 25.754935555555612,
+      "relationshipDelta": 6.548523777777776,
+      "interactions": 17,
+      "petCount": 1
+    },
+    "recentEvents": [
+      {
+        "id": "wellbeing_64f568b9-680c-47ee-b1cf-ef7bb266d716",
+        "type": "pet",
+        "text": "你摸了摸它，心情和主动性有小幅提升。",
+        "createdAt": "2026-10-04T04:13:08.158Z"
+      },
+      {
+        "id": "wellbeing_5fd24bea-918f-4daf-8908-e1f89ea16b97",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T14:52:01.875Z"
+      },
+      {
+        "id": "wellbeing_e6d29a8a-ee7d-4f2f-a916-a15b89f6fe61",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T14:03:47.109Z"
+      },
+      {
+        "id": "wellbeing_53cb4086-d729-4a1b-80ca-86bab7467200",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T14:01:19.617Z"
+      },
+      {
+        "id": "wellbeing_6978d1e6-5dc8-4ef0-a610-a8821effb785",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T13:58:12.942Z"
+      },
+      {
+        "id": "wellbeing_b26d7551-9297-46ff-83b9-a81898786e7a",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T13:45:19.366Z"
+      },
+      {
+        "id": "wellbeing_a6c38964-282d-4452-809a-8c8f2fec6177",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T13:34:34.768Z"
+      },
+      {
+        "id": "wellbeing_c4d51bf5-4d8f-4b9f-9a97-60cf48f1807c",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T13:31:38.838Z"
+      },
+      {
+        "id": "wellbeing_cdb4a090-8cc9-4232-a32a-df48d69273a9",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T13:30:05.136Z"
+      },
+      {
+        "id": "wellbeing_96f73a78-b5d0-4ff3-92df-4b42f2925aaa",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T13:29:15.682Z"
+      },
+      {
+        "id": "wellbeing_fdca074c-15aa-4913-bbd0-c08008a1f837",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T13:28:33.539Z"
+      },
+      {
+        "id": "wellbeing_08919089-2d9d-4e7d-a232-54433606602a",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T12:29:54.121Z"
+      },
+      {
+        "id": "wellbeing_b67fe443-cece-4730-9230-a9a230cdf1fa",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T12:28:55.634Z"
+      },
+      {
+        "id": "wellbeing_5579c635-5830-4085-9d95-c54a1009bb27",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T12:28:28.933Z"
+      },
+      {
+        "id": "wellbeing_0aa90aed-fce5-4197-a700-ec85950a2f8e",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T08:50:23.740Z"
+      },
+      {
+        "id": "wellbeing_b8e484b8-fbb1-434f-84b3-73eccde35d67",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T08:25:20.669Z"
+      },
+      {
+        "id": "wellbeing_1d042816-1af7-4318-b6c9-b4cd25968e86",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T08:08:06.815Z"
+      },
+      {
+        "id": "wellbeing_ad39d6e7-457a-4dbe-b68c-026257dd4ee6",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T06:40:55.693Z"
+      },
+      {
+        "id": "wellbeing_c4ee2202-16b6-45bb-9d53-14d1e599074a",
+        "type": "energy",
+        "text": "精力偏低，开始更容易想休息。",
+        "createdAt": "2026-09-28T08:04:32.953Z"
+      }
+    ]
+  },
+  "documents": [],
+  "memories": [],
+  "conversations": [],
+  "voiceProfiles": [],
+  "localModels": [],
+  "localInference": {
+    "llmModelId": "",
+    "asrModelId": "",
+    "ttsModelId": ""
+  },
+  "customModules": [
+    {
+      "id": "dialog_cd6143ac-c4a2-40b6-acca-cec510affe6b",
+      "name": "对话框皮肤",
+      "description": "简洁的本地对话窗口。",
+      "kind": "dialog-box",
+      "width": 460,
+      "height": 620,
+      "background": "#f7f5ef",
+      "borderColor": "#d9d7d0",
+      "borderRadius": 8,
+      "textColor": "#172033",
+      "userBubbleColor": "#edf5ff",
+      "assistantBubbleColor": "#ffffff",
+      "fontFamily": "Microsoft YaHei UI",
+      "customCss": "",
+      "createdAt": "2026-10-01T05:29:50.778Z",
+      "updatedAt": "2026-10-01T05:29:50.778Z",
+      "contextMenuLabel": "打开对话框",
+      "enabled": true,
+      "quickControl": false,
+      "windowTitle": "默认对话框",
+      "windowBody": "简洁的本地对话窗口。",
+      "windowWidth": 420,
+      "windowHeight": 320,
+      "moduleScope": "pet",
+      "moduleCategory": "dialog-skin",
+      "backgroundImageUrl": "",
+      "userBubbleImageUrl": "",
+      "assistantBubbleImageUrl": "",
+      "decorationImageUrl": "",
+      "climbChance": 55,
+      "climbJumpIntervalSeconds": 35,
+      "climbMaxWindows": 2,
+      "climbJumpChance": 65,
+      "hungerDecayPerMinute": 1,
+      "foodSeekIntervalSeconds": 8,
+      "climbChainChance": 90,
+      "climbChainDecay": 0.65,
+      "climbHeightDecay": 0.8,
+      "climbApproachChance": 45,
+      "metrics": []
+    },
+    {
+      "id": "builtin-climb-platforms",
+      "name": "攀爬平台模组",
+      "description": "重力状态下自动寻找落脚点，并生成最多两个攀爬窗口。",
+      "kind": "interaction",
+      "moduleScope": "pet",
+      "moduleCategory": "interaction",
+      "enabled": true,
+      "quickControl": false,
+      "builtinType": "climb-platforms",
+      "windowTitle": "攀爬落脚点",
+      "windowBody": "桌宠会尝试爬到这扇窗上。",
+      "windowWidth": 400,
+      "windowHeight": 300,
+      "contextMenuLabel": "生成攀爬窗口",
+      "createdAt": "2026-10-01T12:56:36.129Z",
+      "updatedAt": "2026-10-01T12:56:36.129Z",
+      "backgroundImageUrl": "",
+      "userBubbleImageUrl": "",
+      "assistantBubbleImageUrl": "",
+      "decorationImageUrl": "",
+      "climbChance": 55,
+      "climbJumpIntervalSeconds": 3,
+      "climbMaxWindows": 2,
+      "climbJumpChance": 100,
+      "hungerDecayPerMinute": 1,
+      "foodSeekIntervalSeconds": 8,
+      "climbChainChance": 90,
+      "climbChainDecay": 0.65,
+      "climbHeightDecay": 0.8,
+      "climbApproachChance": 45,
+      "metrics": []
+    },
+    {
+      "id": "builtin-hunger-food",
+      "name": "吃饭模组",
+      "description": "显示饥饿值，并主动寻找桌面上的 .food 文件；饥饿时会借助攀爬和跳跃获得食物。",
+      "kind": "interaction",
+      "moduleScope": "pet",
+      "moduleCategory": "interaction",
+      "enabled": true,
+      "quickControl": false,
+      "builtinType": "hunger-food",
+      "hungerDecayPerMinute": 1,
+      "foodSeekIntervalSeconds": 8,
+      "contextMenuLabel": "查看饥饿值",
+      "createdAt": "2026-10-02T13:28:24.937Z",
+      "updatedAt": "2026-10-02T13:28:24.937Z",
+      "windowTitle": "吃饭模组",
+      "windowBody": "显示饥饿值，并主动寻找桌面上的 .food 文件；饥饿时会借助攀爬和跳跃获得食物。",
+      "windowWidth": 420,
+      "windowHeight": 320,
+      "climbChance": 55,
+      "climbJumpChance": 65,
+      "climbJumpIntervalSeconds": 35,
+      "climbMaxWindows": 2,
+      "backgroundImageUrl": "",
+      "userBubbleImageUrl": "",
+      "assistantBubbleImageUrl": "",
+      "decorationImageUrl": "",
+      "climbChainChance": 90,
+      "climbChainDecay": 0.65,
+      "climbHeightDecay": 0.8,
+      "climbApproachChance": 45,
+      "metrics": [
+        {
+          "key": "hunger",
+          "label": "饥饿值",
+          "unit": "%",
+          "min": 0,
+          "max": 100,
+          "tone": "orange",
+          "decayPerMinute": 1,
+          "warnBelow": 30
+        }
+      ]
+    }
+  ],
+  "aiModules": [],
+  "trainingProfiles": [],
+  "activeTrainingProfileId": "",
+  "auxiliaryWindows": [
+    {
+      "id": "aux_41df3e9b-741a-4ccf-a9e4-5f085358beee",
+      "name": "纸条窗口",
+      "title": "一张没有用的纸条",
+      "body": "如果你看见这张纸条，说明辅助窗口已经能正常打开和关闭。",
+      "width": 420,
+      "height": 300,
+      "enabled": true
+    },
+    {
+      "id": "aux_0266ad0e-aeed-45d1-8313-e09724d6726b",
+      "name": "高处平台",
+      "title": "临时高处",
+      "body": "后续可以让桌宠借助这类窗口移动到桌面上的其他位置。",
+      "width": 520,
+      "height": 340,
+      "enabled": true
+    }
+  ],
+  "settings": {
+    "appearance": {
+      "theme": "default"
+    },
+    "overlay": {
+      "visibleOnStart": true,
+      "alwaysOnTop": true,
+      "includeTaskbarArea": true,
+      "gravity": 1800,
+      "walkSpeed": 63,
+      "scale": 1.6,
+      "sleepAfterSeconds": 90,
+      "idleActionEnabled": true,
+      "idleActionIntervalSeconds": 20,
+      "idleActionChance": 45,
+      "friction": 45,
+      "bounce": 30,
+      "wallBounce": 55,
+      "groundBounce": 45,
+      "gravityLocked": true,
+      "passThroughChance": 100
+    },
+    "services": {
+      "llm": {
+        "mode": "local",
+        "baseUrl": "http://127.0.0.1:11434/v1",
+        "model": "qwen2.5:7b",
+        "apiKey": ""
+      },
+      "asr": {
+        "mode": "local",
+        "baseUrl": "http://127.0.0.1:8000/v1",
+        "model": "whisper-1",
+        "apiKey": ""
+      },
+      "tts": {
+        "mode": "local",
+        "baseUrl": "http://127.0.0.1:9880/v1",
+        "model": "",
+        "voiceId": "",
+        "apiKey": ""
+      }
+    },
+    "chat": {
+      "dialogModuleId": "dialog_cd6143ac-c4a2-40b6-acca-cec510affe6b"
+    }
+  },
+  "activity": [],
+  "stats": {
+    "wakeCount": 0,
+    "releaseCount": 165,
+    "chatCount": 17,
+    "createdAt": "2026-09-27T07:27:23.741Z"
+  }
+}

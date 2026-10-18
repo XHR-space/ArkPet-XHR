@@ -878,6 +878,53 @@ export function ModuleManagerView() {
                         }
                       />
                     </label>
+                    <label className="module-climb-setting">
+                      <span>最多连爬层数</span>
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        value={settingsModule.climbMaxSteps ?? 3}
+                        onChange={(event) =>
+                          void updateState({
+                            customModules: currentState.customModules.map(
+                              (module) =>
+                                module.id === settingsModule.id
+                                  ? {
+                                      ...module,
+                                      climbMaxSteps: Number(event.target.value)
+                                    }
+                                  : module
+                            )
+                          })
+                        }
+                      />
+                      <input
+                        type="number"
+                        min="1"
+                        max="10"
+                        value={settingsModule.climbMaxSteps ?? 3}
+                        onChange={(event) =>
+                          void updateState({
+                            customModules: currentState.customModules.map(
+                              (module) =>
+                                module.id === settingsModule.id
+                                  ? {
+                                      ...module,
+                                      climbMaxSteps: Math.max(
+                                        1,
+                                        Math.min(
+                                          10,
+                                          Number(event.target.value) || 3
+                                        )
+                                      )
+                                    }
+                                  : module
+                            )
+                          })
+                        }
+                      />
+                    </label>
                   </>
                 )}
               </>

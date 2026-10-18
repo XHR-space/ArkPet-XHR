@@ -2,8 +2,6 @@ import { clamp } from "./format";
 import { makeId } from "./id";
 import type { CharacterProfile, WellbeingState } from "../types";
 
-export type ActivityMode = "walking" | "idle" | "sleeping" | "hidden";
-
 export function ensureWellbeing(
   value: Partial<WellbeingState> | undefined,
   character: CharacterProfile
@@ -82,86 +80,6 @@ export function withUpdatedMood(
     moodScore,
     mood: moodLabel(moodScore)
   };
-}
-
-export function simulateWellbeing(
-  previous: WellbeingState,
-  character: CharacterProfile,
-  mode: ActivityMode,
-  elapsedMs: number,
-  now = Date.now()
-): WellbeingState {
-  const safeElapsed = clamp(elapsedMs, 0, 2 * 60 * 1000);
-  const elapsedMinutes = safeElapsed / 60000;
-  if (elapsedMinutes <= 0) return previous;
-
-  const todayKey = dayKey(new Date(now));
-  const resetDaily = previous.todayKey !== todayKey;
-  let energy = Number(previous.energy ?? 76);
-  let initiative = Number(previous.initiative ?? character.initiative ?? 58);
-  let relationship = Number(previous.relationship ?? 12);
-  let energyDelta = resetDaily ? 0 : Number(previous.today.energyDelta || 0);
-  let initiativeDelta = resetDaily
-    ? 0
-    : Number(previous.today.initiativeDelta || 0);
-  let relationshipDelta = resetDaily
-    ? 0
-    : Number(previous.today.relationshipDelta || 0);
-
-  let energyChange = 0;
-  if (mode === "walking") energyChange = -0.2 * elapsedMinutes;
-  else if (mode === "idle") energyChange = -0.1 * elapsedMinutes;
-  else if (mode === "sleeping") energyChange = 0.67 * elapsedMinutes;
-
-  energy = clamp(energy + energyChange, 0, 100);
-  energyDelta += energy - Number(previous.energy ?? energy);
-
-  if (mode !== "sleeping") {
-    const relationshipChange = 0.2 * (elapsedMinutes / 60);
-    relationship = clamp(relationship + relationshipChange, 0, 100);
-    relationshipDelta += relationshipChange;
-  }
-
-  const lastInteractionAt = new Date(previous.lastInteractionAt).getTime();
-  const minutesSinceInteraction = Number.isFinite(lastInteractionAt)
-    ? Math.max(0, (now - lastInteractionAt) / 60000)
-    : 0;
-  if (minutesSinceInteraction > 15 && mode !== "sleeping") {
-    const floor = Math.max(20, Number(character.initiative ?? 58) - 15);
-    const before = initiative;
-    initiative = Math.max(
-      floor,
-      initiative - elapsedMinutes / 15
-    );
-    initiativeDelta += initiative - before;
-  } else if (mode === "sleeping") {
-    const base = Number(character.initiative ?? 58);
-    const before = initiative;
-    initiative += clamp(base - initiative, -0.2, 0.2) * elapsedMinutes;
-    initiativeDelta += initiative - before;
-  }
-
-  const next = withUpdatedMood(
-    {
-      ...previous,
-      energy,
-      initiative,
-      relationship,
-      todayKey,
-      today: {
-        ...previous.today,
-        energyDelta,
-        initiativeDelta,
-        relationshipDelta,
-        interactions: resetDaily ? 0 : previous.today.interactions,
-        petCount: resetDaily ? 0 : previous.today.petCount
-      },
-      lastSimulatedAt: new Date(now).toISOString()
-    },
-    now
-  );
-
-  return next;
 }
 
 export function recordWellbeingInteraction(

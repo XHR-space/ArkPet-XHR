@@ -1986,6 +1986,11 @@ button:disabled {
   cursor: pointer;
 }
 
+.module-bound-chip--disabled {
+  border-style: dashed;
+  opacity: 0.62;
+}
+
 .module-add-menu {
   position: static;
   display: grid;
@@ -4444,6 +4449,25 @@ input[type="range"] {
   text-align: center;
   transform: translateX(-50%);
   white-space: nowrap;
+  pointer-events: none;
+}
+
+.pet-voice-transcript {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 50%;
+  max-width: 260px;
+  overflow: hidden;
+  padding: 3px 9px;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  color: #3d4b60;
+  background: rgba(255, 255, 255, 0.95);
+  font-size: 11px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: translateX(-50%);
   pointer-events: none;
 }
 

@@ -543,8 +543,14 @@ export function WorkshopView() {
       const dy = (moveEvent.clientY - startY) / previewScale;
       if (kind === "display") {
         saveRenderConfig({
-          visualWidth: Math.max(40, Math.round(start.visualWidth + dx)),
-          visualHeight: Math.max(60, Math.round(start.visualHeight + dy))
+          displayWidth: Math.max(
+            60,
+            Math.round((start.displayWidth || 260) + dx)
+          ),
+          displayHeight: Math.max(
+            80,
+            Math.round((start.displayHeight || 320) + dy)
+          )
         });
       } else if (kind === "hitbox") {
         saveRenderConfig({
@@ -616,8 +622,14 @@ export function WorkshopView() {
         });
       } else {
         saveRenderConfig({
-          visualWidth: Math.max(40, Math.round(start.visualWidth + widthDelta)),
-          visualHeight: Math.max(60, Math.round(start.visualHeight + heightDelta))
+          displayWidth: Math.max(
+            60,
+            Math.round((start.displayWidth || 260) + widthDelta)
+          ),
+          displayHeight: Math.max(
+            80,
+            Math.round((start.displayHeight || 320) + heightDelta)
+          )
         });
       }
     };
@@ -635,9 +647,15 @@ export function WorkshopView() {
     Boolean(draftParts.texture) &&
     draftDiagnostics?.status !== "invalid";
   const advancedScale = getAdvancedPreviewScale(activeRenderConfig);
+  // 画面框（画布）只由 displayWidth/displayHeight 决定，改它不再影响角色大小
   const advancedDisplayWidth =
-    (activeRenderConfig.visualWidth || 104) * advancedScale;
+    (activeRenderConfig.displayWidth || 260) * advancedScale;
   const advancedDisplayHeight =
+    (activeRenderConfig.displayHeight || 320) * advancedScale;
+  // 角色自己的渲染尺寸仍由 visualWidth/visualHeight 决定
+  const advancedVisualWidth =
+    (activeRenderConfig.visualWidth || 104) * advancedScale;
+  const advancedVisualHeight =
     (activeRenderConfig.visualHeight || 134) * advancedScale;
   const advancedHitboxWidth = activeRenderConfig.hitboxWidth * advancedScale;
   const advancedHitboxHeight = activeRenderConfig.hitboxHeight * advancedScale;
@@ -791,12 +809,12 @@ export function WorkshopView() {
               fitRatio={showAdvanced ? 0.78 : 0.6}
               fitWidth={
                 showAdvanced
-                  ? advancedDisplayWidth
+                  ? advancedVisualWidth
                   : undefined
               }
               fitHeight={
                 showAdvanced
-                  ? advancedDisplayHeight
+                  ? advancedVisualHeight
                   : undefined
               }
               displayWidth={showAdvanced ? advancedDisplayWidth : undefined}
@@ -1092,7 +1110,39 @@ export function WorkshopView() {
                   {advancedMode === "display" && (
                     <>
                       <label className="range-field">
-                        <span>显示宽度</span>
+                        <span>画面宽度</span>
+                        <input
+                          type="range"
+                          min="60"
+                          max="1200"
+                          step="2"
+                          value={activeRenderConfig.displayWidth || 260}
+                          onChange={(event) =>
+                            saveRenderConfig({
+                              displayWidth: Number(event.target.value)
+                            })
+                          }
+                        />
+                        <strong>{activeRenderConfig.displayWidth || 260}</strong>
+                      </label>
+                      <label className="range-field">
+                        <span>画面高度</span>
+                        <input
+                          type="range"
+                          min="80"
+                          max="1400"
+                          step="2"
+                          value={activeRenderConfig.displayHeight || 320}
+                          onChange={(event) =>
+                            saveRenderConfig({
+                              displayHeight: Number(event.target.value)
+                            })
+                          }
+                        />
+                        <strong>{activeRenderConfig.displayHeight || 320}</strong>
+                      </label>
+                      <label className="range-field">
+                        <span>角色宽度</span>
                         <input
                           type="range"
                           min="40"
@@ -1108,7 +1158,7 @@ export function WorkshopView() {
                         <strong>{activeRenderConfig.visualWidth || 104}</strong>
                       </label>
                       <label className="range-field">
-                        <span>显示高度</span>
+                        <span>角色高度</span>
                         <input
                           type="range"
                           min="60"
@@ -1270,12 +1320,19 @@ export function WorkshopView() {
                               )
                             )
                             .filter(
-                              (module) =>
-                                Boolean(module) && module!.enabled !== false
+                              (module) => Boolean(module)
                             )
                             .map((module) => (
-                              <span className="module-bound-chip" key={module!.id}>
+                              <span
+                                className={
+                                  module!.enabled === false
+                                    ? "module-bound-chip module-bound-chip--disabled"
+                                    : "module-bound-chip"
+                                }
+                                key={module!.id}
+                              >
                                 {module!.contextMenuLabel || module!.name}
+                                {module!.enabled === false ? "（已停用）" : ""}
                                 <button
                                   type="button"
                                   onClick={() =>
