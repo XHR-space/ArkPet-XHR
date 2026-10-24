@@ -3,9 +3,11 @@ import {
   ChevronRight,
   DoorOpen,
   Play,
+  Plus,
   RotateCcw,
   Sparkles,
-  TestTubeDiagonal
+  TestTubeDiagonal,
+  X
 } from "lucide-react";
 import { PetAvatar } from "../components/PetAvatar";
 import { SpinePet } from "../components/SpinePet";
@@ -17,6 +19,7 @@ import { useEffect, useState } from "react";
 export function WakeView({ petMode }: { petMode: PetMode }) {
   const { state, updateState } = useAppState();
   const [page, setPage] = useState(0);
+  const [modulePickerOpen, setModulePickerOpen] = useState(false);
   const summonedPets = state
     ? state.summonedPetIds
         .map((petId) => state.pets.find((item) => item.id === petId))
@@ -336,28 +339,163 @@ export function WakeView({ petMode }: { petMode: PetMode }) {
 
       <section className="wake-side">
         <div className="section-heading">
-          <span className="section-kicker">辅助窗口</span>
-          <h2>临时落脚点</h2>
-          <p>这些是正常的普通窗口，可以通过鼠标关闭。</p>
+          <span className="section-kicker">模组区</span>
+          <h2>角色模组</h2>
+          <p>添加后可在这里直接调整模组。</p>
         </div>
-        <div className="aux-list">
-          {state.auxiliaryWindows
-            .filter((item) => item.enabled)
-            .map((item) => (
-              <div className="aux-row" key={item.id}>
-                <div>
-                  <strong>{item.name}</strong>
-                  <span>
-                    {item.width} x {item.height}
-                  </span>
+        <div className="wake-module-list">
+          {state.customModules
+            .filter(
+              (module) =>
+                module.enabled !== false &&
+                module.moduleScope === "global" &&
+                module.quickControl === true
+            )
+            .map((module) => (
+              <article className="wake-module-card" key={module.id}>
+                <div className="wake-module-heading">
+                  <strong>{module.name}</strong>
+                  <button
+                    type="button"
+                    title="移除模组"
+                    onClick={() =>
+                      void updateState({
+                        customModules: state.customModules.map((item) =>
+                          item.id === module.id
+                            ? { ...item, quickControl: false }
+                            : item
+                        )
+                      })
+                    }
+                  >
+                    <X size={13} />
+                  </button>
                 </div>
-                <button type="button" onClick={() => window.deskPet.openAuxiliary(item.id)}>
-                  <DoorOpen size={17} />
-                  打开
+                {module.kind === "dialog-box" && (
+                  <div className="wake-dialog-controls">
+                    <label>
+                      <span>宽度</span>
+                      <input
+                        type="number"
+                        value={module.width || 320}
+                        onChange={(event) =>
+                          void updateState({
+                            customModules: state.customModules.map((item) =>
+                              item.id === module.id
+                                ? {
+                                    ...item,
+                                    width: Number(event.target.value) || 320
+                                  }
+                                : item
+                            )
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>高度</span>
+                      <input
+                        type="number"
+                        value={module.height || 260}
+                        onChange={(event) =>
+                          void updateState({
+                            customModules: state.customModules.map((item) =>
+                              item.id === module.id
+                                ? {
+                                    ...item,
+                                    height: Number(event.target.value) || 260
+                                  }
+                                : item
+                            )
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>背景</span>
+                      <input
+                        type="color"
+                        value={module.background || "#f7f5ef"}
+                        onChange={(event) =>
+                          void updateState({
+                            customModules: state.customModules.map((item) =>
+                              item.id === module.id
+                                ? { ...item, background: event.target.value }
+                                : item
+                            )
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                )}
+                <button
+                  className="wake-module-open"
+                  type="button"
+                  onClick={() =>
+                    void window.deskPet.openExternalModule(module.id)
+                  }
+                >
+                  <DoorOpen size={14} />
+                  打开模组
                 </button>
-              </div>
-          ))}
+              </article>
+            ))}
+          {state.customModules.filter(
+            (module) =>
+              module.enabled !== false &&
+              module.moduleScope === "global" &&
+              module.quickControl === true
+          ).length === 0 && (
+            <p className="empty-copy">还没有添加模组。</p>
+          )}
         </div>
+        <button
+          className="wake-add-module-bar"
+          type="button"
+          onClick={() => setModulePickerOpen((current) => !current)}
+        >
+          <Plus size={15} />
+          添加模组
+        </button>
+        {modulePickerOpen && (
+          <div className="wake-module-picker">
+            {state.customModules
+              .filter(
+                (module) =>
+                  module.enabled !== false &&
+                  module.moduleScope === "global" &&
+                  module.quickControl !== true
+              )
+              .map((module) => (
+                <button
+                  type="button"
+                  key={module.id}
+                  onClick={() => {
+                    void updateState({
+                      customModules: state.customModules.map((item) =>
+                        item.id === module.id
+                          ? { ...item, quickControl: true }
+                          : item
+                      )
+                    });
+                    setModulePickerOpen(false);
+                  }}
+                >
+                  {module.name}
+                  <Plus size={13} />
+                </button>
+              ))}
+            {state.customModules.filter(
+              (module) =>
+                module.enabled !== false &&
+                module.moduleScope === "global" &&
+                module.quickControl !== true
+            ).length === 0 && (
+              <span className="empty-copy">没有可添加的模组。</span>
+            )}
+          </div>
+        )}
         <div className="gravity-lock-panel">
           <div>
             <span className="section-kicker">移动模式</span>

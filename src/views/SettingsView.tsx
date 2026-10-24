@@ -1,32 +1,24 @@
 import {
   ArchiveRestore,
-  BellRing,
   FolderOpen,
-  Gauge,
   HardDriveDownload,
   Palette,
-  Plus,
   Power,
   Radio,
   Save,
-  Trash2,
   Volume2
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { makeId } from "../lib/id";
 import { useAppState } from "../state";
 import type {
-  AppSettings,
-  AuxiliaryWindowConfig,
   ServiceConfig,
-  ThemeName
+  ThemeName,
+  UpdateStatus
 } from "../types";
 
 type SettingsSection =
-  | "overlay"
   | "theme"
   | "services"
-  | "windows"
   | "data"
   | "app";
 
@@ -66,45 +58,38 @@ const sections: Array<{
   id: SettingsSection;
   label: string;
   description: string;
-  icon: typeof Gauge;
+  icon: typeof Palette;
 }> = [
-  { id: "overlay", label: "桌宠与物理", description: "重力、速度与显示", icon: Gauge },
   { id: "theme", label: "皮肤主题", description: "界面配色与皮肤", icon: Palette },
-  { id: "windows", label: "辅助窗口", description: "窗口内容与尺寸", icon: BellRing },
   { id: "data", label: "数据安全", description: "备份与数据位置", icon: HardDriveDownload },
   { id: "app", label: "应用控制", description: "启动与退出", icon: Power }
 ];
 
 export function SettingsView() {
   const { state, updateState } = useAppState();
-  const [activeSection, setActiveSection] = useState<SettingsSection>("overlay");
+  const [activeSection, setActiveSection] = useState<SettingsSection>("theme");
   const [serviceResults, setServiceResults] = useState<Record<string, string>>({});
   const [paths, setPaths] = useState<{
     dataPath: string;
     statePath: string;
     assetsPath: string;
     petStorePath: string;
+    softwarePath: string;
+    softwareDataPath: string;
+    appPath: string;
+    updateCachePath: string;
   } | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
 
   useEffect(() => {
     window.deskPet.getDataPaths().then(setPaths);
+    window.deskPet.updateStatus().then(setUpdateStatus);
+    return window.deskPet.onUpdateStatus(setUpdateStatus);
   }, []);
 
   if (!state) return null;
   const currentState = state;
-
-  async function saveOverlay(patch: Partial<AppSettings["overlay"]>) {
-    await updateState({
-      settings: {
-        ...currentState.settings,
-        overlay: {
-          ...currentState.settings.overlay,
-          ...patch
-        }
-      }
-    });
-  }
 
   async function saveTheme(theme: ThemeName) {
     await updateState({
@@ -145,32 +130,6 @@ export function SettingsView() {
     }));
   }
 
-  async function saveAuxiliary(
-    auxiliaryId: string,
-    patch: Partial<AuxiliaryWindowConfig>
-  ) {
-    await updateState({
-      auxiliaryWindows: currentState.auxiliaryWindows.map((item) =>
-        item.id === auxiliaryId ? { ...item, ...patch } : item
-      )
-    });
-  }
-
-  async function addAuxiliary() {
-    const auxiliary: AuxiliaryWindowConfig = {
-      id: makeId("aux"),
-      name: "新辅助窗口",
-      title: "临时落脚点",
-      body: "这个窗口的内容可以在数据与设置中修改。",
-      width: 440,
-      height: 320,
-      enabled: true
-    };
-    await updateState({
-      auxiliaryWindows: [...currentState.auxiliaryWindows, auxiliary]
-    });
-  }
-
   async function exportBackup() {
     setBackupBusy(true);
     try {
@@ -184,7 +143,10 @@ export function SettingsView() {
     if (!window.confirm("导入备份会替换当前状态，确定继续吗？")) return;
     setBackupBusy(true);
     try {
-      await window.deskPet.importBackup();
+      const result = await window.deskPet.importBackup();
+      if (result.ok === false) {
+        window.alert(result.error || "导入备份失败。");
+      }
     } finally {
       setBackupBusy(false);
     }
@@ -217,89 +179,6 @@ export function SettingsView() {
       </aside>
 
       <section className="settings-content">
-        {activeSection === "overlay" && (
-          <div className="settings-section">
-            <div className="section-heading">
-              <span className="section-kicker">桌宠与物理</span>
-              <h2>调整桌面上的运动手感</h2>
-              <p>修改后立即保存，并同步到透明桌宠层。</p>
-            </div>
-            <label className="toggle-row">
-              <div>
-                <strong>启动后显示桌宠</strong>
-                <span>关闭后需要从顶栏手动释放</span>
-              </div>
-              <input
-                type="checkbox"
-                checked={state.settings.overlay.visibleOnStart}
-                onChange={(event) => saveOverlay({ visibleOnStart: event.target.checked })}
-              />
-            </label>
-            <label className="toggle-row">
-              <div>
-                <strong>始终置顶</strong>
-                <span>让桌宠保持在普通窗口上方</span>
-              </div>
-              <input
-                type="checkbox"
-                checked={state.settings.overlay.alwaysOnTop}
-                onChange={(event) => saveOverlay({ alwaysOnTop: event.target.checked })}
-              />
-            </label>
-            <div className="settings-sliders">
-              <label className="range-field">
-                <span>重力</span>
-                <input
-                  type="range"
-                  min="600"
-                  max="3000"
-                  step="50"
-                  value={state.settings.overlay.gravity}
-                  onChange={(event) => saveOverlay({ gravity: Number(event.target.value) })}
-                />
-                <strong>{state.settings.overlay.gravity}</strong>
-              </label>
-              <label className="range-field">
-                <span>行走速度</span>
-                <input
-                  type="range"
-                  min="30"
-                  max="220"
-                  step="2"
-                  value={state.settings.overlay.walkSpeed}
-                  onChange={(event) => saveOverlay({ walkSpeed: Number(event.target.value) })}
-                />
-                <strong>{state.settings.overlay.walkSpeed}</strong>
-              </label>
-              <label className="range-field">
-                <span>桌宠缩放</span>
-                <input
-                  type="range"
-                  min="0.6"
-                  max="1.6"
-                  step="0.05"
-                  value={state.settings.overlay.scale}
-                  onChange={(event) => saveOverlay({ scale: Number(event.target.value) })}
-                />
-                <strong>{Math.round(state.settings.overlay.scale * 100)}%</strong>
-              </label>
-            </div>
-            <div className="settings-actions">
-              <button type="button" onClick={() => window.deskPet.overlayCommand({ type: "drop" })}>
-                测试掉落
-              </button>
-              <button
-                className="primary-small"
-                type="button"
-                onClick={() => window.deskPet.overlayCommand({ type: "home" })}
-              >
-                <Save size={16} />
-                回到默认落点
-              </button>
-            </div>
-          </div>
-        )}
-
         {activeSection === "theme" && (
           <div className="settings-section">
             <div className="section-heading">
@@ -401,104 +280,6 @@ export function SettingsView() {
           </div>
         )}
 
-        {activeSection === "windows" && (
-          <div className="settings-section">
-            <div className="section-heading section-heading--split">
-              <div>
-                <span className="section-kicker">辅助窗口</span>
-                <h2>编辑可以打开和关闭的普通窗口</h2>
-                <p>第一版只负责打开它们，后续再让桌宠借助这些窗口移动。</p>
-              </div>
-              <button className="primary-small" type="button" onClick={addAuxiliary}>
-                <Plus size={16} />
-                新建窗口
-              </button>
-            </div>
-            <div className="aux-editor-list">
-              {state.auxiliaryWindows.map((auxiliary) => (
-                <article className="aux-editor" key={auxiliary.id}>
-                  <div className="aux-editor-heading">
-                    <input
-                      defaultValue={auxiliary.name}
-                      key={`${auxiliary.id}-name`}
-                      onBlur={(event) => saveAuxiliary(auxiliary.id, { name: event.target.value })}
-                    />
-                    <label className="compact-toggle">
-                      <input
-                        type="checkbox"
-                        checked={auxiliary.enabled}
-                        onChange={(event) =>
-                          saveAuxiliary(auxiliary.id, { enabled: event.target.checked })
-                        }
-                      />
-                      启用
-                    </label>
-                    <button
-                      type="button"
-                      title="删除辅助窗口"
-                      onClick={() =>
-                        updateState({
-                          auxiliaryWindows: state.auxiliaryWindows.filter(
-                            (item) => item.id !== auxiliary.id
-                          )
-                        })
-                      }
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                  <div className="aux-editor-grid">
-                    <label className="full-field">
-                      <span>窗口标题</span>
-                      <input
-                        defaultValue={auxiliary.title}
-                        key={`${auxiliary.id}-title`}
-                        onBlur={(event) => saveAuxiliary(auxiliary.id, { title: event.target.value })}
-                      />
-                    </label>
-                    <label className="full-field">
-                      <span>窗口内容</span>
-                      <textarea
-                        defaultValue={auxiliary.body}
-                        key={`${auxiliary.id}-body`}
-                        rows={3}
-                        onBlur={(event) => saveAuxiliary(auxiliary.id, { body: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      <span>宽度</span>
-                      <input
-                        type="number"
-                        defaultValue={auxiliary.width}
-                        key={`${auxiliary.id}-width`}
-                        onBlur={(event) =>
-                          saveAuxiliary(auxiliary.id, { width: Number(event.target.value) })
-                        }
-                      />
-                    </label>
-                    <label>
-                      <span>高度</span>
-                      <input
-                        type="number"
-                        defaultValue={auxiliary.height}
-                        key={`${auxiliary.id}-height`}
-                        onBlur={(event) =>
-                          saveAuxiliary(auxiliary.id, { height: Number(event.target.value) })
-                        }
-                      />
-                    </label>
-                  </div>
-                  <div className="aux-editor-actions">
-                    <button type="button" onClick={() => window.deskPet.openAuxiliary(auxiliary.id)}>
-                      打开预览
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        )}
-
         {activeSection === "data" && (
           <div className="settings-section">
             <div className="section-heading">
@@ -509,14 +290,28 @@ export function SettingsView() {
             <div className="data-path">
               <FolderOpen size={20} />
               <div>
-                <strong>数据目录</strong>
-                <code>{paths?.dataPath || "正在读取..."}</code>
+                  <strong>软件数据目录</strong>
+                  <code>{paths?.softwareDataPath || "正在读取..."}</code>
               </div>
             </div>
+              <div className="data-path">
+                <FolderOpen size={20} />
+                <div>
+                  <strong>用户数据子目录（更新时保留）</strong>
+                  <code>{paths?.dataPath || "正在读取..."}</code>
+                </div>
+              </div>
+              <p className="idle-help">
+                用户数据放在软件目录下的 data/user-data 中。自动更新只替换程序文件，保留 data 目录。
+              </p>
             <div className="settings-actions">
               <button type="button" onClick={() => window.deskPet.openDataFolder()}>
                 <FolderOpen size={16} />
-                打开目录
+                  打开用户数据
+                </button>
+                <button type="button" onClick={() => window.deskPet.openSoftwareFolder()}>
+                  <FolderOpen size={16} />
+                  打开软件目录
               </button>
               <button
                 type="button"
@@ -549,16 +344,66 @@ export function SettingsView() {
             <div className="section-heading">
               <span className="section-kicker">应用控制</span>
               <h2>本地运行状态</h2>
-              <p>应用不需要登录或联网。关闭管理台时会隐藏到后台，桌宠继续运行。</p>
+                <p>除检查更新外，应用不需要登录或联网。关闭管理台时会隐藏到后台，桌宠继续运行。</p>
             </div>
+              <div className="update-panel">
+                <div>
+                  <span className="section-kicker">自动更新</span>
+                  <strong>
+                    当前版本 {updateStatus?.currentVersion || "读取中"}
+                    {updateStatus?.latestVersion
+                      ? ` · 最新版本 ${updateStatus.latestVersion}`
+                      : ""}
+                  </strong>
+                  <p>
+                    {updateStatus?.status === "ready"
+                      ? "新版本已下载，退出软件时自动替换；也可以立即更新。"
+                      : updateStatus?.status === "downloading"
+                        ? `正在下载更新 ${updateStatus.progress}%`
+                        : updateStatus?.status === "checking"
+                          ? "正在检查更新..."
+                          : updateStatus?.status === "up-to-date"
+                            ? "当前已经是最新版本。"
+                            : updateStatus?.status === "development"
+                              ? "开发运行模式不自动安装更新。"
+                              : updateStatus?.status === "error"
+                                ? updateStatus.error || "检查更新失败。"
+                                : "软件会在后台自动检查新版本，并保留全部用户数据。"}
+                  </p>
+                </div>
+                <div className="update-actions">
+                  <button
+                    type="button"
+                    disabled={
+                      updateStatus?.status === "checking" ||
+                      updateStatus?.status === "downloading"
+                    }
+                    onClick={() =>
+                      void window.deskPet.checkForUpdates().then(setUpdateStatus)
+                    }
+                  >
+                    检查更新
+                  </button>
+                  {updateStatus?.status === "ready" && (
+                    <button
+                      className="primary-small"
+                      type="button"
+                      onClick={() => void window.deskPet.installUpdate()}
+                    >
+                      立即更新并退出
+                    </button>
+                  )}
+                </div>
+                {updateStatus?.status === "downloading" && (
+                  <div className="update-progress">
+                    <span style={{ width: `${updateStatus.progress}%` }} />
+                  </div>
+                )}
+              </div>
             <div className="app-control-list">
               <div>
                 <strong>运行位置</strong>
                 <span>仅限当前 Windows 电脑</span>
-              </div>
-              <div>
-                <strong>云服务</strong>
-                <span>未使用</span>
               </div>
               <div>
                 <strong>应用数据</strong>
@@ -567,14 +412,14 @@ export function SettingsView() {
             </div>
             <div className="danger-zone">
               <div>
-                <strong>退出桌宠工房</strong>
+                <strong>退出 ArkPet</strong>
                 <span>结束管理台、桌宠悬浮层和后台服务连接。</span>
               </div>
               <button
                 className="danger-button"
                 type="button"
                 onClick={() => {
-                  if (window.confirm("确定退出桌宠工房吗？")) window.deskPet.quit();
+                  if (window.confirm("确定退出 ArkPet 吗？")) window.deskPet.quit();
                 }}
               >
                 <Power size={16} />

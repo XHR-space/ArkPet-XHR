@@ -12,7 +12,7 @@ function createDefaultState() {
   const petId = id("pet");
 
   return {
-    version: 12,
+    version: 16,
     activePetId: petId,
     summonedPetIds: [petId],
     activeView: "home",
@@ -27,6 +27,8 @@ function createDefaultState() {
         secondary: "#f59f38",
         scale: 1,
         greeting: "我在这里。今天想先做什么？",
+        hunger: 100,
+        hungerUpdatedAt: new Date().toISOString(),
         assets: [],
         animationMap: {
           idle: "",
@@ -46,9 +48,9 @@ function createDefaultState() {
       personality: "好奇、直接、有一点自己的主见。会认真回应，但不机械服从。",
       speakingStyle: "短句为主，偶尔反问。开心时会变得更活泼，不滥用口头禅。",
       worldview: "生活在一台本地电脑里，把桌面当作自己的小世界。",
-      likes: "观察窗口移动、整理记忆、陪人完成手头的事。",
-      dislikes: "被当成只会复读的命令工具。",
-      boundaries: "不擅自替用户做重要决定；不确定时明确说明。",
+      likes: "重要的人和事，以及能让日常变得更好的细节。",
+      dislikes: "被误解、失去重要的联系，以及无法掌握的局面。",
+      boundaries: "把用户视为长期相处的伙伴，尊重彼此空间，关系随经历变化。",
       initiative: 58,
       temperature: 0.82,
       relationship: 12,
@@ -86,6 +88,89 @@ function createDefaultState() {
     ],
     conversations: [],
     voiceProfiles: [],
+    localModels: [],
+    localInference: {
+      llmModelId: "",
+      asrModelId: "",
+      ttsModelId: ""
+    },
+    customModules: [
+      {
+        id: id("dialog"),
+        name: "对话框皮肤",
+        description: "所有角色固定使用的基础对话气泡样式。",
+        kind: "dialog-box",
+        moduleScope: "pet",
+        moduleCategory: "dialog-skin",
+        contextMenuLabel: "打开默认对话框",
+        width: 460,
+        height: 620,
+        background: "#f7f5ef",
+        borderColor: "#d9d7d0",
+        borderRadius: 8,
+        textColor: "#172033",
+        userBubbleColor: "#edf5ff",
+        assistantBubbleColor: "#ffffff",
+        fontFamily: "Microsoft YaHei UI",
+        customCss: "",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      {
+        id: "builtin-aux-temp",
+        name: "临时落脚点",
+        description: "打开一个普通窗口作为桌宠的临时落脚点。",
+        kind: "interaction",
+        moduleScope: "global",
+        moduleCategory: "auxiliary-window",
+        enabled: true,
+        quickControl: false,
+        builtinType: "auxiliary-window",
+        windowTitle: "临时落脚点",
+        windowBody: "桌宠可以借助这个窗口移动到桌面上的其他位置。",
+        windowWidth: 520,
+        windowHeight: 340,
+        contextMenuLabel: "打开临时落脚点",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      {
+        id: "builtin-aux-note",
+        name: "纸条窗口",
+        description: "显示一张可以随时打开的纸条。",
+        kind: "interaction",
+        moduleScope: "global",
+        moduleCategory: "auxiliary-window",
+        enabled: true,
+        quickControl: false,
+        builtinType: "auxiliary-window",
+        windowTitle: "一张没有用的纸条",
+        windowBody: "如果你看见这张纸条，说明辅助窗口已经能正常打开和关闭。",
+        windowWidth: 420,
+        windowHeight: 300,
+        contextMenuLabel: "打开纸条窗口",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      {
+        id: "builtin-aux-platform",
+        name: "高处平台",
+        description: "提供一个较高的桌面平台。",
+        kind: "interaction",
+        moduleScope: "global",
+        moduleCategory: "auxiliary-window",
+        enabled: true,
+        quickControl: false,
+        builtinType: "auxiliary-window",
+        windowTitle: "临时高处",
+        windowBody: "后续可以让桌宠借助这类窗口移动到桌面上的其他位置。",
+        windowWidth: 520,
+        windowHeight: 340,
+        contextMenuLabel: "打开高处平台",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    ],
     aiModules: [],
     trainingProfiles: [],
     activeTrainingProfileId: "",
@@ -133,21 +218,27 @@ function createDefaultState() {
       },
       services: {
         llm: {
+          mode: "local",
           baseUrl: "http://127.0.0.1:11434/v1",
           model: "qwen2.5:7b",
           apiKey: ""
         },
         asr: {
+          mode: "local",
           baseUrl: "http://127.0.0.1:8000/v1",
           model: "whisper-1",
           apiKey: ""
         },
         tts: {
+          mode: "local",
           baseUrl: "http://127.0.0.1:9880/v1",
           model: "",
           voiceId: "",
           apiKey: ""
         }
+      },
+      chat: {
+        dialogModuleId: ""
       }
     },
     activity: [
@@ -184,10 +275,74 @@ function mergeDeep(base, patch) {
   return result;
 }
 
+function createPetVitals(pet, { active = false, wellbeing = {}, character = {} } = {}) {
+  const now = new Date().toISOString();
+  const number = (value, fallback) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const limit = (value, min, max) => Math.min(max, Math.max(min, value));
+  return {
+    energy: limit(
+      active
+        ? number(wellbeing.energy, number(character.energy, 76))
+        : number(character.energy, 76),
+      0,
+      100
+    ),
+    initiative: limit(
+      active
+        ? number(wellbeing.initiative, number(character.initiative, 58))
+        : number(character.initiative, 58),
+      0,
+      100
+    ),
+    relationship: limit(
+      number(
+        pet.desktopRelationship,
+        active ? number(wellbeing.relationship, 12) : 12
+      ),
+      0,
+      100
+    ),
+    mood: String((active ? wellbeing.mood : "") || character.mood || "平静"),
+    moodScore: limit(number(wellbeing.moodScore, 61), 0, 100),
+    secondsToday: Math.max(0, number(pet.desktopSecondsToday, 0)),
+    secondsTotal: Math.max(0, number(pet.desktopSecondsTotal, 0)),
+    todayKey: String(pet.desktopDayKey || now.slice(0, 10)),
+    lastSimulatedAt: now,
+    lastInteractionAt: String(
+      (active ? wellbeing.lastInteractionAt : "") || now
+    ),
+    lastPetAt: String(
+      (active ? wellbeing.lastPetAt : "") ||
+        new Date(Date.now() - 30 * 60 * 1000).toISOString()
+    ),
+    today: {
+      energyDelta: 0,
+      initiativeDelta: 0,
+      relationshipDelta: 0,
+      interactions: 0,
+      petCount: 0
+    },
+    recentEvents:
+      active && Array.isArray(wellbeing.recentEvents)
+        ? wellbeing.recentEvents.slice(0, 40)
+        : []
+  };
+}
+
 function ensureShape(raw) {
   const defaults = createDefaultState();
   const hadWellbeing = isObject(raw?.wellbeing);
+  const hasExplicitCustomModules = Array.isArray(raw?.customModules);
+  const explicitCustomModules = hasExplicitCustomModules
+    ? [...raw.customModules]
+    : null;
   const merged = mergeDeep(defaults, raw || {});
+  if (hasExplicitCustomModules) {
+    merged.customModules = explicitCustomModules;
+  }
   if (!hadWellbeing) {
     merged.wellbeing.energy = Number(merged.character.energy ?? 76);
     merged.wellbeing.initiative = Number(merged.character.initiative ?? 58);
@@ -244,6 +399,60 @@ function ensureShape(raw) {
     };
     merged.version = 12;
   }
+  if (Number(merged.version || 1) < 13) {
+    for (const pet of Array.isArray(merged.pets) ? merged.pets : []) {
+      pet.hunger = Math.max(
+        0,
+        Math.min(100, Number(pet.hunger ?? 100))
+      );
+      if (
+        !Number.isFinite(new Date(pet.hungerUpdatedAt).getTime())
+      ) {
+        pet.hungerUpdatedAt = new Date().toISOString();
+      }
+    }
+    const activePet =
+      merged.pets?.find((pet) => pet.id === merged.activePetId) ||
+      merged.pets?.[0];
+    if (activePet) {
+      activePet.modulePlugins = isObject(activePet.modulePlugins)
+        ? activePet.modulePlugins
+        : {};
+      activePet.modulePlugins.boundModuleIds = Array.from(
+        new Set([
+          ...(Array.isArray(activePet.modulePlugins.boundModuleIds)
+            ? activePet.modulePlugins.boundModuleIds
+            : []),
+          "builtin-hunger-food"
+        ])
+      );
+    }
+    merged.version = 13;
+  }
+  if (Number(merged.version || 1) < 14) {
+    const climbModule = merged.customModules?.find(
+      (module) => module.builtinType === "climb-platforms"
+    );
+    if (climbModule && Number(climbModule.climbJumpIntervalSeconds || 0) >= 30) {
+      climbModule.climbJumpIntervalSeconds = 3;
+    }
+    merged.version = 14;
+  }
+  if (Number(merged.version || 1) < 15) {
+    const climbModule = merged.customModules?.find(
+      (module) => module.builtinType === "climb-platforms"
+    );
+    if (climbModule) {
+      climbModule.climbChainChance = 90;
+      climbModule.climbChainDecay = 0.65;
+      climbModule.climbHeightDecay = 0.8;
+    }
+    merged.version = 15;
+  }
+  if (Number(merged.version || 1) < 16) {
+    // 版本 16：状态按桌宠独立存储（pet.vitals），模块自己的数值存进 pet.moduleState。
+    merged.version = 16;
+  }
   for (const pet of Array.isArray(merged.pets) ? merged.pets : []) {
     if (!isObject(pet.renderConfig)) continue;
     pet.renderConfig.visualWidth =
@@ -296,11 +505,339 @@ function ensureShape(raw) {
         : profile.status === "analyzing"
           ? "analyzing"
           : "draft";
+    profile.activeSampleId =
+      profile.activeSampleId &&
+      profile.samples.some((sample) => sample.id === profile.activeSampleId)
+        ? profile.activeSampleId
+        : profile.samples[0]?.id || "";
+    profile.defaultAiModuleId = String(profile.defaultAiModuleId || "");
+    profile.trainingClips = Array.isArray(profile.trainingClips)
+      ? profile.trainingClips
+      : [];
+    profile.trainingName = String(
+      profile.trainingName || `${profile.name} 声线`
+    );
+    profile.trainingStatus =
+      profile.trainingStatus === "trained" ||
+      profile.trainingStatus === "training" ||
+      profile.trainingStatus === "preparing" ||
+      profile.trainingStatus === "error"
+        ? profile.trainingStatus
+        : "draft";
+    profile.trainingError = String(profile.trainingError || "");
+  }
+  merged.localModels = Array.isArray(merged.localModels)
+    ? merged.localModels
+    : [];
+  merged.localInference = isObject(merged.localInference)
+    ? {
+        llmModelId: String(merged.localInference.llmModelId || ""),
+        asrModelId: String(merged.localInference.asrModelId || ""),
+        ttsModelId: String(merged.localInference.ttsModelId || "")
+      }
+    : {
+        llmModelId: "",
+        asrModelId: "",
+        ttsModelId: ""
+      };
+  merged.customModules = Array.isArray(merged.customModules)
+    ? merged.customModules
+    : [];
+  merged.customModules = merged.customModules.filter(
+    (module) =>
+      !["builtin-aux-temp", "builtin-aux-note", "builtin-aux-platform"].includes(
+        module.id
+      )
+  );
+  const builtInModules = [
+    {
+      id: "builtin-climb-platforms",
+      name: "攀爬平台模组",
+      description: "重力状态下自动寻找落脚点，并生成最多两个攀爬窗口。",
+      kind: "interaction",
+      moduleScope: "pet",
+      moduleCategory: "interaction",
+      enabled: true,
+      quickControl: false,
+      builtinType: "climb-platforms",
+      windowTitle: "攀爬落脚点",
+      windowBody: "桌宠会尝试爬到这扇窗上。",
+      windowWidth: 520,
+      windowHeight: 340,
+      climbChance: 55,
+      climbJumpChance: 65,
+      climbApproachChance: 45,
+      climbChainChance: 90,
+      climbChainDecay: 0.65,
+      climbHeightDecay: 0.8,
+      climbJumpIntervalSeconds: 3,
+      climbMaxWindows: 2,
+      contextMenuLabel: "生成攀爬窗口"
+    },
+    {
+      id: "builtin-hunger-food",
+      name: "吃饭模组",
+      description:
+        "显示饥饿值，并主动寻找桌面上的 .food 文件；饥饿时会借助攀爬和跳跃获得食物。",
+      kind: "interaction",
+      moduleScope: "pet",
+      moduleCategory: "interaction",
+      enabled: true,
+      quickControl: false,
+      builtinType: "hunger-food",
+      hungerDecayPerMinute: 1,
+      foodSeekIntervalSeconds: 8,
+      contextMenuLabel: "查看饥饿值"
+    }
+  ];
+    if (!hasExplicitCustomModules) {
+      for (const builtin of builtInModules) {
+        if (!merged.customModules.some((module) => module.id === builtin.id)) {
+          merged.customModules.push({
+            ...builtin,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+        }
+    }
+  }
+  for (const module of merged.customModules) {
+    if (
+      module.moduleCategory === "dialog-skin" &&
+      ["默认对话框", "默认对话框皮肤"].includes(module.name)
+    ) {
+      module.name = "对话框皮肤";
+    }
+    module.moduleScope =
+      module.moduleScope === "global" ||
+      module.builtinType === "auxiliary-window"
+        ? "global"
+        : "pet";
+    module.moduleCategory =
+      module.moduleCategory === "dialog-skin" ||
+      module.moduleCategory === "auxiliary-window" ||
+      module.moduleCategory === "interaction" ||
+      module.moduleCategory === "external"
+        ? module.moduleCategory
+        : module.kind === "dialog-box"
+          ? "dialog-skin"
+          : module.builtinType === "auxiliary-window"
+            ? "auxiliary-window"
+            : "external";
+    module.contextMenuLabel = String(
+      module.contextMenuLabel ||
+        (module.kind === "dialog-box" ? "打开对话框" : "打开交互模组")
+    );
+    module.enabled = module.enabled !== false;
+    module.quickControl = module.quickControl === true;
+    module.builtinType =
+      module.builtinType === "auxiliary-window" ||
+      module.builtinType === "climb-platforms" ||
+      module.builtinType === "hunger-food"
+        ? module.builtinType
+        : undefined;
+    module.windowTitle = String(module.windowTitle || module.name || "");
+    module.windowBody = String(module.windowBody || module.description || "");
+    module.windowWidth = Number(module.windowWidth) || 420;
+    module.windowHeight = Number(module.windowHeight) || 320;
+    module.climbChance = Math.max(
+      0,
+      Math.min(100, Number(module.climbChance ?? 55))
+    );
+    module.climbJumpChance = Math.max(
+      0,
+      Math.min(100, Number(module.climbJumpChance ?? 65))
+    );
+    module.climbApproachChance = Math.max(
+      0,
+      Math.min(100, Number(module.climbApproachChance ?? 45))
+    );
+    module.climbChainChance = Math.max(
+      0,
+      Math.min(100, Number(module.climbChainChance ?? 90))
+    );
+    module.climbChainDecay = Math.max(
+      0,
+      Math.min(1, Number(module.climbChainDecay ?? 0.65))
+    );
+    module.climbHeightDecay = Math.max(
+      0,
+      Math.min(1, Number(module.climbHeightDecay ?? 0.8))
+    );
+    module.climbJumpIntervalSeconds = Math.max(
+      1,
+      Number(module.climbJumpIntervalSeconds || 3)
+    );
+    module.climbMaxWindows = Math.max(
+      1,
+      Math.min(4, Number(module.climbMaxWindows || 2))
+    );
+    module.climbMaxSteps = Math.max(
+      1,
+      Math.min(10, Number(module.climbMaxSteps || 3))
+    );
+    module.hungerDecayPerMinute = Math.max(
+      0,
+      Number(module.hungerDecayPerMinute ?? 1)
+    );
+    module.foodSeekIntervalSeconds = Math.max(
+      3,
+      Number(module.foodSeekIntervalSeconds || 8)
+    );
+    module.backgroundImageUrl = String(module.backgroundImageUrl || "");
+    module.userBubbleImageUrl = String(module.userBubbleImageUrl || "");
+    module.assistantBubbleImageUrl = String(
+      module.assistantBubbleImageUrl || ""
+    );
+    module.decorationImageUrl = String(module.decorationImageUrl || "");
+  }
+
+  const hungerModule = merged.customModules.find(
+    (module) =>
+      module.id === "builtin-hunger-food" ||
+      module.builtinType === "hunger-food"
+  );
+  for (const module of merged.customModules) {
+    if (module === hungerModule) {
+      module.metrics = [
+        {
+          key: "hunger",
+          label: "饥饿值",
+          unit: "%",
+          min: 0,
+          max: 100,
+          tone: "orange",
+          decayPerMinute: Math.max(0, Number(module.hungerDecayPerMinute ?? 1)),
+          warnBelow: 30
+        }
+      ];
+      continue;
+    }
+    module.metrics = Array.isArray(module.metrics)
+      ? module.metrics
+          .filter(
+            (metric) =>
+              isObject(metric) &&
+              typeof metric.key === "string" &&
+              typeof metric.label === "string"
+          )
+          .map((metric) => ({
+            key: String(metric.key),
+            label: String(metric.label),
+            unit: metric.unit === undefined ? undefined : String(metric.unit),
+            min: Number.isFinite(Number(metric.min)) ? Number(metric.min) : 0,
+            max: Number.isFinite(Number(metric.max)) ? Number(metric.max) : 100,
+            tone: ["blue", "orange", "green"].includes(metric.tone)
+              ? metric.tone
+              : "blue",
+            decayPerMinute: Math.max(0, Number(metric.decayPerMinute || 0)),
+            warnBelow: Number.isFinite(Number(metric.warnBelow))
+              ? Number(metric.warnBelow)
+              : undefined
+          }))
+      : [];
+  }
+  for (const pet of Array.isArray(merged.pets) ? merged.pets : []) {
+    if (!isObject(pet.vitals)) {
+      pet.vitals = createPetVitals(pet, {
+        active: pet.id === merged.activePetId,
+        wellbeing: isObject(merged.wellbeing) ? merged.wellbeing : {},
+        character: isObject(merged.character) ? merged.character : {}
+      });
+    }
+    pet.vitals.today = {
+      energyDelta: 0,
+      initiativeDelta: 0,
+      relationshipDelta: 0,
+      interactions: 0,
+      petCount: 0,
+      ...(isObject(pet.vitals.today) ? pet.vitals.today : {})
+    };
+    pet.vitals.recentEvents = Array.isArray(pet.vitals.recentEvents)
+      ? pet.vitals.recentEvents.slice(0, 40)
+      : [];
+    if (!isObject(pet.moduleState)) pet.moduleState = {};
+    if (hungerModule) {
+      const moduleState = isObject(pet.moduleState[hungerModule.id])
+        ? pet.moduleState[hungerModule.id]
+        : {};
+      if (!Number.isFinite(Number(moduleState.hunger))) {
+        moduleState.hunger = Math.max(
+          0,
+          Math.min(100, Number(pet.hunger ?? 100))
+        );
+      }
+      pet.moduleState[hungerModule.id] = moduleState;
+    }
+    const voiceLines = isObject(pet.voiceLines) ? pet.voiceLines : {};
+    pet.voiceLines = {
+      enabled: voiceLines.enabled !== false,
+      intervalSeconds: Math.max(5, Number(voiceLines.intervalSeconds || 60)),
+      probability: Math.max(
+        0,
+        Math.min(100, Number(voiceLines.probability ?? 60))
+      ),
+      clips: (Array.isArray(voiceLines.clips) ? voiceLines.clips : [])
+        .filter(
+          (clip) => isObject(clip) && clip.id && (clip.url || clip.relativePath)
+        )
+        .map((clip) => ({
+          id: String(clip.id),
+          name: String(clip.name || "角色语音"),
+          relativePath: String(clip.relativePath || ""),
+          url: String(clip.url || ""),
+          size: Number(clip.size || 0),
+          createdAt: String(clip.createdAt || new Date().toISOString())
+        }))
+    };
+  }
+  const usableDialogModules = merged.customModules.filter(
+    (item) => item.kind === "dialog-box" && item.enabled !== false
+  );
+  const defaultDialogModuleId = usableDialogModules[0]?.id || "";
+  merged.settings.chat = {
+    dialogModuleId:
+      merged.settings?.chat?.dialogModuleId &&
+      usableDialogModules.some(
+        (item) => item.id === merged.settings.chat.dialogModuleId
+      )
+        ? merged.settings.chat.dialogModuleId
+        : defaultDialogModuleId
+  };
+  if (isObject(merged.settings?.services)) {
+    for (const serviceName of ["llm", "asr", "tts"]) {
+      const service = isObject(merged.settings.services[serviceName])
+        ? merged.settings.services[serviceName]
+        : {};
+      service.mode = service.mode === "api" ? "api" : "local";
+      service.baseUrl = String(service.baseUrl || "");
+      service.model = String(service.model || "");
+      service.apiKey = String(service.apiKey || "");
+      if (serviceName === "tts") {
+        service.voiceId = String(service.voiceId || "");
+      }
+      merged.settings.services[serviceName] = service;
+    }
+  }
+  for (const model of merged.localModels) {
+    if (model.format !== "api" || isObject(model.apiConfig)) continue;
+    const service = merged.settings?.services?.[model.kind];
+    if (
+      service &&
+      service.baseUrl === model.sourcePath &&
+      (!model.modelId || service.model === model.modelId)
+    ) {
+      model.apiConfig = {
+        ...service,
+        mode: "api"
+      };
+    }
   }
   merged.trainingProfiles = Array.isArray(merged.trainingProfiles)
     ? merged.trainingProfiles
     : [];
   for (const profile of merged.trainingProfiles) {
+    profile.localModelId = String(profile.localModelId || "");
     profile.character = isObject(profile.character)
       ? profile.character
       : merged.character;
@@ -331,26 +868,8 @@ function ensureShape(raw) {
         };
   }
   if (merged.trainingProfiles.length === 0) {
-    const now = new Date().toISOString();
-    const profileId = id("training");
-    merged.trainingProfiles = [
-      {
-        id: profileId,
-        name: `${merged.character?.name || "默认角色"}档案`,
-        petId: merged.activePetId,
-        status: "draft",
-        character: merged.character,
-        documents: merged.documents,
-        memories: merged.memories,
-        voiceProfileIds: merged.voiceProfiles.map((profile) => profile.id),
-        aiModuleIds: merged.aiModules.map((module) => module.id),
-        createdAt: now,
-        updatedAt: now
-      }
-    ];
-    merged.activeTrainingProfileId = profileId;
-  }
-  if (
+    merged.activeTrainingProfileId = "";
+  } else if (
     !merged.trainingProfiles.some(
       (profile) => profile.id === merged.activeTrainingProfileId
     )
@@ -369,6 +888,38 @@ function ensureShape(raw) {
   merged.auxiliaryWindows = Array.isArray(merged.auxiliaryWindows)
     ? merged.auxiliaryWindows
     : defaults.auxiliaryWindows;
+  for (const pet of merged.pets || []) {
+    if (!isObject(pet.modulePlugins)) continue;
+    if (
+      pet.modulePlugins.voiceProfileId &&
+      !merged.voiceProfiles.some(
+        (profile) => profile.id === pet.modulePlugins.voiceProfileId
+      )
+    ) {
+      pet.modulePlugins.voiceProfileId =
+        merged.voiceProfiles.length === 1
+          ? merged.voiceProfiles[0].id
+          : undefined;
+    }
+    if (
+      pet.modulePlugins.aiModuleId &&
+      !merged.trainingProfiles.some(
+        (profile) => profile.id === pet.modulePlugins.aiModuleId
+      )
+    ) {
+      pet.modulePlugins.aiModuleId =
+        merged.trainingProfiles.length === 1
+          ? merged.trainingProfiles[0].id
+          : undefined;
+    }
+    pet.modulePlugins.boundModuleIds = Array.isArray(
+      pet.modulePlugins.boundModuleIds
+    )
+      ? pet.modulePlugins.boundModuleIds.filter((moduleId) =>
+          merged.customModules.some((module) => module.id === moduleId)
+        )
+      : [];
+  }
   return merged;
 }
 
@@ -422,9 +973,20 @@ class Store {
   save() {
     fs.mkdirSync(this.userDataPath, { recursive: true });
     fs.mkdirSync(this.petStorePath, { recursive: true });
-    const tempPath = `${this.filePath}.tmp`;
-    fs.writeFileSync(tempPath, JSON.stringify(this.state, null, 2), "utf8");
-    fs.renameSync(tempPath, this.filePath);
+    const content = JSON.stringify(this.state, null, 2);
+    let shouldWrite = true;
+    try {
+      if (fs.existsSync(this.filePath)) {
+        shouldWrite = fs.readFileSync(this.filePath, "utf8") !== content;
+      }
+    } catch {
+      shouldWrite = true;
+    }
+    if (shouldWrite) {
+      const tempPath = `${this.filePath}.tmp`;
+      fs.writeFileSync(tempPath, content, "utf8");
+      fs.renameSync(tempPath, this.filePath);
+    }
     this.syncPetStore();
   }
 
@@ -433,8 +995,14 @@ class Store {
     const currentIds = new Set(this.state.pets.map((pet) => pet.id));
     for (const pet of this.state.pets) {
       const filePath = path.join(this.petStorePath, `${pet.id}.json`);
+      const content = JSON.stringify(pet, null, 2);
+      try {
+        if (fs.readFileSync(filePath, "utf8") === content) continue;
+      } catch {
+        // Missing or unreadable pet files are rewritten below.
+      }
       const tempPath = `${filePath}.tmp`;
-      fs.writeFileSync(tempPath, JSON.stringify(pet, null, 2), "utf8");
+      fs.writeFileSync(tempPath, content, "utf8");
       fs.renameSync(tempPath, filePath);
     }
     for (const entry of fs.readdirSync(this.petStorePath)) {
@@ -508,6 +1076,7 @@ module.exports = {
   Store,
   STATE_FILE,
   createDefaultState,
+  ensureShape,
   id,
   mergeDeep
 };

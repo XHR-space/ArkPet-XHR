@@ -1,16 +1,24 @@
 {
   "name": "desk-companion-studio",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "description": "A local-first Windows desktop companion studio.",
   "type": "module",
   "main": "electron/main.cjs",
+  "author": "XHR-cpu23",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "start": "electron .",
-    "check": "npm run typecheck && npm run build"
+    "seed": "node scripts/make-release-seed.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "check:escapes": "node scripts/check-escapes.mjs",
+    "check": "npm run check:escapes && npm run typecheck && npm run build",
+    "dist": "npm run check && electron-builder",
+    "dist:ci": "npm run check && electron-builder --publish never",
+    "dist:mac:ci": "npm run check && electron-builder --mac --publish never",
+    "dist:dir": "npm run check && electron-builder --dir"
   },
   "dependencies": {
     "@pixi-spine/all-3.8": "^4.0.6",
@@ -27,7 +35,104 @@
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^33.2.1",
+    "electron-builder": "^26.0.12",
+    "rcedit": "^5.0.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"
+  },
+  "build": {
+    "appId": "com.xhrcpu23.deskpetstudio",
+    "productName": "ArkPet",
+    "executableName": "ArkPet",
+    "afterPack": "scripts/after-pack.cjs",
+    "copyright": "Copyright © 2026 XHR-cpu23",
+    "asar": false,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "scripts/**/*",
+      "package.json",
+      "!scripts/**/*.pyc",
+      "!scripts/**/__pycache__/**/*",
+      "!voice-engine/**/*",
+      "!user-data/**/*",
+      "!release-seed/**/*",
+      "!release/**/*",
+      "!src/**/*",
+      "!spine-source/**/*",
+      "!launcher/**/*",
+      "!data/**/*",
+      "!module-registry/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "release-seed/desk-pet-state.json",
+        "to": "user-data-seed/desk-pet-state.json"
+      },
+      {
+        "from": "release-seed/pet-store",
+        "to": "user-data-seed/pet-store"
+      },
+      {
+        "from": "release-seed/assets",
+        "to": "user-data-seed/assets"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "mac": {
+      "icon": "build/icon.png",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "minimumSystemVersion": "11.0",
+      "category": "public.app-category.entertainment",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "ArkPet-macOS-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh",
+      "artifactName": "ArkPet Setup ${version}.${ext}",
+      "shortcutName": "ArkPet"
+    },
+    "portable": {
+      "artifactName": "ArkPet Portable ${version}.${ext}"
+    }
   }
 }

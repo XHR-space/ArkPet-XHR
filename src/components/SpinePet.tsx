@@ -296,6 +296,7 @@ export function SpinePet({
             scale
           };
           spine.scale.set(scale);
+          host.dataset.spineScale = scale.toFixed(4);
           const x =
             (width - bounds.width * scale) / 2 -
             bounds.x * scale +

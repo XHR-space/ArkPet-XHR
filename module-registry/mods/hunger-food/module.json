@@ -1,0 +1,15 @@
+{
+  "id": "builtin-hunger-food",
+  "name": "吃饭模组",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "author": "XHR-cpu23",
+  "description": "显示饥饿值，并让桌宠寻找桌面上的食物。",
+  "type": "interaction",
+  "scope": "pet",
+  "category": "interaction",
+  "builtinType": "hunger-food",
+  "contextMenuLabel": "查看饥饿值",
+  "width": 420,
+  "height": 320
+}

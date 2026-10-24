@@ -2,7 +2,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { AuxiliaryView } from "./components/AuxiliaryView";
-import { MultiPetOverlay } from "./components/MultiPetOverlay";
+import { ChatWindow } from "./components/ChatWindow";
+import { MultiPetOverlay } from "./components/PetOverlay";
 import "./styles.css";
 
 const root = document.getElementById("root");
@@ -18,6 +19,8 @@ if (view === "overlay") {
   content = <MultiPetOverlay />;
 } else if (view.startsWith("aux:")) {
   content = <AuxiliaryView auxiliaryId={view.slice(4)} />;
+} else if (view.startsWith("chat:")) {
+  content = <ChatWindow mode={view.slice(5) === "voice" ? "voice" : "text"} />;
 }
 
 createRoot(root).render(<StrictMode>{content}</StrictMode>);

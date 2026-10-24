@@ -9,7 +9,8 @@
 - 桌宠制作、图片素材导入和 Spine 3.8 骨骼角色导入
 - 个性化 AI 角色大脑、资料、记忆和对话测试
 - 本地语音识别、语音合成接口
-- 数据与设置、辅助窗口、备份与恢复
+- 数据与设置、备份与恢复
+- 基于 GitHub Releases 的自动更新检查与安装包暂存
 - 透明置顶、鼠标穿透、拖动、重力、任务栏上沿落点和自动行走
 
 ## 启动
@@ -26,15 +27,48 @@ npm.cmd run build
 npm.cmd start
 ```
 
-## 数据位置
+## 目录与数据位置
 
-默认位于项目内的：
+目录统一放在软件根目录下：
+
+- 软件代码：`src/`、`electron/`、`scripts/`、`dist/`
+- 启动器：`launcher/`
+- Spine 素材源：`spine-source/`
+- 软件数据：`data/`
+- 用户数据：`data/user-data/`
+
+正式安装包同样使用 `<软件目录>/data/user-data`。自动更新只替换程序文件，不修改 `data` 目录；如果安装目录不可写，才会回退到系统用户目录。
+
+默认开发数据位于项目内的：
 
 ```text
-user-data
+data/user-data
 ```
 
-主状态文件为 `user-data/desk-pet-state.json`，每个角色的独立存档位于 `user-data/pet-store`，图片和声音素材保存在 `user-data/assets`。软件关闭或重启后数据不会丢失。
+主状态文件为 `data/user-data/desk-pet-state.json`，每个角色的独立存档位于 `data/user-data/pet-store`，图片和声音素材保存在 `data/user-data/assets`。软件关闭或重启后数据不会丢失。
+
+## 发布种子
+
+安装包里的初始数据来自 `release-seed/`，由下面这条命令生成：
+
+```powershell
+npm.cmd run seed
+```
+
+发行种子只保留三个名字以“黍”开头的桌宠、一个黍角色档案和一个黍语音模块，并清除本地模型、推理设置、服务地址与密钥、个人声音样本、对话记录、使用时间、训练模块和预设模组。因此用户需要在自己的电脑上配置模型和下载模组。
+
+## 模组仓库
+
+模组独立于软件版本，清单位于：
+
+```text
+module-registry/registry.json
+module-registry/mods/<module-id>/
+```
+
+每个模组目录包含 `module.json`、入口页面和所需资源。`registry.json` 中的 `version` 用于安装与更新检测，`basePath` 指向模组目录，`files` 列出需要下载的全部文件。
+
+发布模组更新时只需要提高对应模组的 `version`，修改模组文件并推送仓库，不需要重新发布软件安装包。正式版会从 GitHub 仓库读取清单和文件；开发版会优先读取本地 `module-registry` 便于测试。
 
 ## 后续需要提供的角色素材
 

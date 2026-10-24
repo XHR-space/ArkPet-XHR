@@ -1,5 +1,6 @@
 import { Color, SkeletonBinary } from "@pixi-spine/all-3.8";
 import {
+  AudioLines,
   Bot,
   CheckCircle2,
   File,
@@ -12,12 +13,13 @@ import {
   SlidersHorizontal,
   Trash2,
   Upload,
-  Volume2
+  Volume2,
+  X
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { PetAvatar } from "../components/PetAvatar";
 import { SpinePet } from "../components/SpinePet";
-import { makeId } from "../lib/id";
+import { makeId, makeUniqueName } from "../lib/id";
 import {
   chooseBoundAnimation,
   universalActions,
@@ -39,6 +41,8 @@ import type {
   PetModulePlugins,
   PetProfile,
   PetRenderConfig,
+  PetVoiceClip,
+  PetVoiceLines,
   SpinePartKind,
   SpineStagedPart
 } from "../types";
@@ -57,6 +61,14 @@ const advancedResizeEdges: AdvancedResizeEdge[] = [
   "sw"
 ];
 
+function formatVoiceInterval(seconds: number) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  if (total < 60) return `${total} 秒`;
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return rest ? `${minutes} 分 ${rest} 秒` : `${minutes} 分钟`;
+}
+
 const spineSlots: Array<{
   kind: SpinePartKind;
   label: string;
@@ -72,6 +84,7 @@ export function WorkshopView() {
   const { state, updateState, refresh } = useAppState();
   const [mode, setMode] = useState<WorkshopMode>("edit");
   const [draftId, setDraftId] = useState(() => makeId("spine-draft"));
+  const [petNameError, setPetNameError] = useState("");
   const [draftParts, setDraftParts] = useState<
     Partial<Record<SpinePartKind, SpineStagedPart>>
   >({});
@@ -89,6 +102,9 @@ export function WorkshopView() {
   const [draftDiagnostics, setDraftDiagnostics] =
     useState<ActionDiagnostics | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+    const [advancedPreviewZoom, setAdvancedPreviewZoom] = useState(2.2);
+  const [modulePickerOpen, setModulePickerOpen] = useState(false);
+  const [voiceLineAudioUrl, setVoiceLineAudioUrl] = useState("");
   const stageRef = useRef<HTMLDivElement | null>(null);
   const stateRef = useRef<AppState | null>(null);
   const petRef = useRef<PetProfile | null>(null);
@@ -154,10 +170,13 @@ export function WorkshopView() {
           window.deskPet.updateStateSync({
             pets: state.pets.map((item) =>
               item.id === currentPet.id
-                ? {
-                    ...item,
-                    renderConfig: withRenderConfigDefaults(draftRenderConfig)
-                  }
+                  ? {
+                      ...item,
+                      renderConfig: withRenderConfigDefaults(draftRenderConfig),
+                      desktopRenderConfig: withRenderConfigDefaults(
+                        draftRenderConfig
+                      )
+                    }
                 : item
             )
           });
@@ -197,7 +216,11 @@ export function WorkshopView() {
         window.deskPet.updateStateSync({
           pets: currentState.pets.map((item) =>
             item.id === currentPet.id
-              ? { ...item, renderConfig: withRenderConfigDefaults(draft) }
+              ? {
+                  ...item,
+                  renderConfig: withRenderConfigDefaults(draft),
+                  desktopRenderConfig: withRenderConfigDefaults(draft)
+                }
               : item
           )
         });
@@ -211,17 +234,29 @@ export function WorkshopView() {
   const pet =
     currentState.pets.find((item) => item.id === currentState.activePetId) ||
     currentState.pets[0];
+    const autoTextEnabled =
+      pet.autoTextEnabled ?? pet.autoDialogueEnabled ?? true;
+    const autoVoiceEnabled =
+      pet.autoVoiceEnabled ?? pet.autoDialogueEnabled ?? true;
   const activeRenderConfig: PetRenderConfig =
     draftRenderConfig || withRenderConfigDefaults(pet.renderConfig);
 
   async function savePet(nextPet: PetProfile) {
-    nextPet.updatedAt = new Date().toISOString();
+    const originalName = nextPet.name;
+    const others = currentState.pets.filter((item) => item.id !== nextPet.id);
+    let name = originalName;
+    if (others.some((item) => item.name === name)) {
+      name = makeUniqueName(name, others.map((item) => item.name));
+    }
+    nextPet = { ...nextPet, name, updatedAt: new Date().toISOString() };
+    const renamed = name !== originalName;
     await updateState({
       pets: currentState.pets.map((item) =>
         item.id === nextPet.id ? nextPet : item
       ),
       activePetId: nextPet.id
     });
+    setPetNameError("");
   }
 
   function saveModulePlugin(patch: Partial<PetModulePlugins>) {
@@ -241,6 +276,31 @@ export function WorkshopView() {
     saveModulePlugin({
       custom: itemId ? { source, itemId } : undefined
     });
+  }
+
+  const voiceLines: PetVoiceLines = pet.voiceLines || {
+    enabled: true,
+    intervalSeconds: 60,
+    probability: 60,
+    clips: []
+  };
+
+  async function saveVoiceLines(patch: Partial<PetVoiceLines>) {
+    await savePet({
+      ...pet,
+      voiceLines: { ...voiceLines, ...patch }
+    });
+  }
+
+  async function importVoiceLines() {
+    const result = await window.deskPet.importVoiceLines(pet.id);
+    if (result.canceled) return;
+    await refresh();
+  }
+
+  function previewVoiceLine(clip: PetVoiceClip) {
+    if (!clip.url) return;
+    setVoiceLineAudioUrl(clip.url);
   }
 
   async function deletePet() {
@@ -450,12 +510,14 @@ export function WorkshopView() {
   }
 
   async function commitRenderConfig() {
+    const nextRenderConfig = withRenderConfigDefaults({
+      ...(pet.renderConfig || {}),
+      ...activeRenderConfig
+    });
     await savePet({
       ...pet,
-      renderConfig: withRenderConfigDefaults({
-        ...(pet.renderConfig || {}),
-        ...activeRenderConfig
-      })
+      renderConfig: nextRenderConfig,
+      desktopRenderConfig: nextRenderConfig
     });
     setRenderConfigDirty(false);
   }
@@ -466,26 +528,23 @@ export function WorkshopView() {
       return;
     }
     if (renderConfigDirty) {
-      const shouldSave = window.confirm(
-        "高级设置有未保存的改动，是否保存后再退出？"
-      );
-      if (shouldSave) {
-        await commitRenderConfig();
-      } else {
-        setDraftRenderConfig(withRenderConfigDefaults(pet.renderConfig));
-        setRenderConfigDirty(false);
-      }
+      await commitRenderConfig();
     }
     setShowAdvanced(false);
   }
 
   function getAdvancedPreviewScale(config: Partial<PetRenderConfig>) {
-    const visual = getVisualSize(config);
-    const fitScale = Math.min(
-      (stageSize.width - 80) / Math.max(1, visual.visualWidth),
-      (stageSize.height - 80) / Math.max(1, visual.visualHeight)
+    const width = config.displayWidth || 260;
+    const height = config.displayHeight || 320;
+    if (stageSize.width <= 0 || stageSize.height <= 0) return 1;
+    return Math.max(
+      0.2,
+      Math.min(
+        1.6,
+        (stageSize.width - 64) / width,
+        (stageSize.height - 64) / height
+      )
     );
-    return Math.max(0.12, Math.min(3.2, fitScale * 0.78));
   }
 
   function beginAdvancedDrag(
@@ -498,29 +557,41 @@ export function WorkshopView() {
     const startY = event.clientY;
     const start = withRenderConfigDefaults(activeRenderConfig);
     const previewScale = getAdvancedPreviewScale(start);
+      const objectScale = previewScale * advancedPreviewZoom;
 
     const handleMove = (moveEvent: PointerEvent) => {
-      const dx = (moveEvent.clientX - startX) / previewScale;
-      const dy = (moveEvent.clientY - startY) / previewScale;
+        const frameDx = (moveEvent.clientX - startX) / previewScale;
+        const frameDy = (moveEvent.clientY - startY) / previewScale;
+        const objectDx = (moveEvent.clientX - startX) / objectScale;
+        const objectDy = (moveEvent.clientY - startY) / objectScale;
       if (kind === "display") {
         saveRenderConfig({
-          visualWidth: Math.max(40, Math.round(start.visualWidth + dx)),
-          visualHeight: Math.max(60, Math.round(start.visualHeight + dy))
+          displayWidth: Math.max(
+            60,
+              Math.round((start.displayWidth || 260) + frameDx)
+          ),
+          displayHeight: Math.max(
+            80,
+              Math.round((start.displayHeight || 320) + frameDy)
+          )
         });
       } else if (kind === "hitbox") {
         saveRenderConfig({
-          hitboxWidth: Math.max(30, Math.round(start.hitboxWidth + dx)),
-          hitboxHeight: Math.max(40, Math.round(start.hitboxHeight + dy))
+            hitboxWidth: Math.max(30, Math.round(start.hitboxWidth + objectDx)),
+            hitboxHeight: Math.max(
+              40,
+              Math.round(start.hitboxHeight + objectDy)
+            )
         });
       } else if (kind === "hitboxMove") {
         saveRenderConfig({
-          hitboxOffsetX: Math.round(start.hitboxOffsetX + dx),
-          hitboxOffsetY: Math.round(start.hitboxOffsetY + dy)
+            hitboxOffsetX: Math.round(start.hitboxOffsetX + objectDx),
+            hitboxOffsetY: Math.round(start.hitboxOffsetY + objectDy)
         });
       } else {
         saveRenderConfig({
-          offsetX: Math.round(start.offsetX + dx),
-          offsetY: Math.round(start.offsetY + dy)
+            offsetX: Math.round(start.offsetX + objectDx),
+            offsetY: Math.round(start.offsetY + objectDy)
         });
       }
     };
@@ -543,14 +614,21 @@ export function WorkshopView() {
     const startY = event.clientY;
     const start = withRenderConfigDefaults(activeRenderConfig);
     const previewScale = getAdvancedPreviewScale(start);
+      const objectScale = previewScale * advancedPreviewZoom;
     const handlesLeft = edge.includes("w");
     const handlesRight = edge.includes("e");
     const handlesTop = edge.includes("n");
     const handlesBottom = edge.includes("s");
 
     const handleMove = (moveEvent: PointerEvent) => {
-      const dx = Math.round((moveEvent.clientX - startX) / previewScale);
-      const dy = Math.round((moveEvent.clientY - startY) / previewScale);
+        const dx = Math.round(
+          (moveEvent.clientX - startX) /
+            (mode === "display" ? previewScale : objectScale)
+        );
+        const dy = Math.round(
+          (moveEvent.clientY - startY) /
+            (mode === "display" ? previewScale : objectScale)
+        );
       const widthDelta = (handlesRight ? dx : 0) - (handlesLeft ? dx : 0);
       const heightDelta = (handlesBottom ? dy : 0) - (handlesTop ? dy : 0);
 
@@ -577,8 +655,14 @@ export function WorkshopView() {
         });
       } else {
         saveRenderConfig({
-          visualWidth: Math.max(40, Math.round(start.visualWidth + widthDelta)),
-          visualHeight: Math.max(60, Math.round(start.visualHeight + heightDelta))
+          displayWidth: Math.max(
+            60,
+            Math.round((start.displayWidth || 260) + widthDelta)
+          ),
+          displayHeight: Math.max(
+            80,
+            Math.round((start.displayHeight || 320) + heightDelta)
+          )
         });
       }
     };
@@ -595,13 +679,23 @@ export function WorkshopView() {
     Boolean(draftParts.atlas) &&
     Boolean(draftParts.texture) &&
     draftDiagnostics?.status !== "invalid";
-  const advancedScale = getAdvancedPreviewScale(activeRenderConfig);
-  const advancedDisplayWidth =
-    (activeRenderConfig.visualWidth || 104) * advancedScale;
-  const advancedDisplayHeight =
-    (activeRenderConfig.visualHeight || 134) * advancedScale;
-  const advancedHitboxWidth = activeRenderConfig.hitboxWidth * advancedScale;
-  const advancedHitboxHeight = activeRenderConfig.hitboxHeight * advancedScale;
+    const rawDisplayWidth = activeRenderConfig.displayWidth || 260;
+    const rawDisplayHeight = activeRenderConfig.displayHeight || 320;
+    // 高级设置里把整块画面框缩放到舞台内，保证四边边框始终可见。
+    const advancedScale = getAdvancedPreviewScale(activeRenderConfig);
+  // 画面框（画布）只由 displayWidth/displayHeight 决定，改它不再影响角色大小
+    const advancedDisplayWidth = rawDisplayWidth * advancedScale;
+    const advancedDisplayHeight = rawDisplayHeight * advancedScale;
+    const advancedObjectScale = advancedScale * advancedPreviewZoom;
+  // 角色自己的渲染尺寸仍由 visualWidth/visualHeight 决定
+  const advancedVisualWidth =
+      (activeRenderConfig.visualWidth || 104) * advancedObjectScale;
+  const advancedVisualHeight =
+      (activeRenderConfig.visualHeight || 134) * advancedObjectScale;
+  const advancedHitboxWidth =
+    activeRenderConfig.hitboxWidth * advancedObjectScale;
+  const advancedHitboxHeight =
+    activeRenderConfig.hitboxHeight * advancedObjectScale;
   const advancedCenterX = stageSize.width / 2;
   const advancedCenterY = stageSize.height / 2;
 
@@ -730,11 +824,13 @@ export function WorkshopView() {
 
         <div
           ref={stageRef}
-          className={
-            mode === "create"
-              ? "workshop-stage workshop-stage--empty"
-              : "workshop-stage"
-          }
+          className={[
+            "workshop-stage",
+            mode === "create" ? "workshop-stage--empty" : "",
+            showAdvanced ? "workshop-stage--advanced" : ""
+          ]
+            .filter(Boolean)
+            .join(" ")}
         >
           <div className="workshop-platform" />
           {mode === "create" ? (
@@ -747,31 +843,31 @@ export function WorkshopView() {
             <SpinePet
               skelUrl={pet.spine.skelUrl}
               state="idle"
-              fitRatio={showAdvanced ? 0.78 : 0.6}
+                fitRatio={showAdvanced ? 1 : 0.6}
               fitWidth={
                 showAdvanced
-                  ? advancedDisplayWidth
+                  ? advancedVisualWidth
                   : undefined
               }
               fitHeight={
                 showAdvanced
-                  ? advancedDisplayHeight
+                  ? advancedVisualHeight
                   : undefined
               }
               displayWidth={showAdvanced ? advancedDisplayWidth : undefined}
               displayHeight={showAdvanced ? advancedDisplayHeight : undefined}
               offsetX={
                 showAdvanced
-                  ? activeRenderConfig.offsetX * advancedScale
+                  ? activeRenderConfig.offsetX * advancedObjectScale
                   : -28 + activeRenderConfig.offsetX
               }
               offsetY={
                 showAdvanced
-                  ? activeRenderConfig.offsetY * advancedScale
+                  ? activeRenderConfig.offsetY * advancedObjectScale
                   : activeRenderConfig.offsetY
               }
               anchorBottom={false}
-              normalizeBodySize={showAdvanced}
+                normalizeBodySize={false}
               className="workshop-spine-pet"
               onAnimations={saveSpineAnimations}
               onSkeletonInfo={saveSkeletonInfo}
@@ -848,11 +944,11 @@ export function WorkshopView() {
                     left:
                       advancedCenterX -
                       advancedHitboxWidth / 2 +
-                      activeRenderConfig.hitboxOffsetX * advancedScale,
+                      activeRenderConfig.hitboxOffsetX * advancedObjectScale,
                     top:
                       advancedCenterY -
                       advancedHitboxHeight / 2 +
-                      activeRenderConfig.hitboxOffsetY * advancedScale,
+                      activeRenderConfig.hitboxOffsetY * advancedObjectScale,
                     width: advancedHitboxWidth,
                     height: advancedHitboxHeight
                   }}
@@ -881,10 +977,22 @@ export function WorkshopView() {
                 <input
                   defaultValue={pet.name}
                   key={`${pet.id}-stage-name`}
-                  onBlur={(event) =>
-                    savePet({ ...pet, name: event.target.value })
-                  }
+                  onBlur={(event) => {
+                    const name = event.target.value.trim();
+                    const others = currentState.pets.filter(
+                      (item) => item.id !== pet.id
+                    );
+                    if (others.some((item) => item.name === name)) {
+                      setPetNameError("名字已存在");
+                      return;
+                    }
+                    setPetNameError("");
+                    void savePet({ ...pet, name });
+                  }}
                 />
+                {petNameError && (
+                  <span className="name-error">名字已存在</span>
+                )}
               </label>
               <label className="stage-character-size">
                 <span>基础尺寸</span>
@@ -943,6 +1051,20 @@ export function WorkshopView() {
                     显示画面调试
                   </button>
                 </div>
+                  <label className="range-field advanced-preview-zoom">
+                    <span>编辑预览放大</span>
+                    <input
+                      type="range"
+                      min="1"
+                      max="3"
+                      step="0.1"
+                      value={advancedPreviewZoom}
+                      onChange={(event) =>
+                        setAdvancedPreviewZoom(Number(event.target.value))
+                      }
+                    />
+                    <strong>{advancedPreviewZoom.toFixed(1)}x</strong>
+                  </label>
                 <div className="advanced-slider-grid">
                   {advancedMode === "position" && (
                     <>
@@ -1051,7 +1173,39 @@ export function WorkshopView() {
                   {advancedMode === "display" && (
                     <>
                       <label className="range-field">
-                        <span>显示宽度</span>
+                        <span>画面宽度</span>
+                        <input
+                          type="range"
+                          min="60"
+                          max="1200"
+                          step="2"
+                          value={activeRenderConfig.displayWidth || 260}
+                          onChange={(event) =>
+                            saveRenderConfig({
+                              displayWidth: Number(event.target.value)
+                            })
+                          }
+                        />
+                        <strong>{activeRenderConfig.displayWidth || 260}</strong>
+                      </label>
+                      <label className="range-field">
+                        <span>画面高度</span>
+                        <input
+                          type="range"
+                          min="80"
+                          max="1400"
+                          step="2"
+                          value={activeRenderConfig.displayHeight || 320}
+                          onChange={(event) =>
+                            saveRenderConfig({
+                              displayHeight: Number(event.target.value)
+                            })
+                          }
+                        />
+                        <strong>{activeRenderConfig.displayHeight || 320}</strong>
+                      </label>
+                      <label className="range-field">
+                        <span>角色宽度</span>
                         <input
                           type="range"
                           min="40"
@@ -1067,7 +1221,7 @@ export function WorkshopView() {
                         <strong>{activeRenderConfig.visualWidth || 104}</strong>
                       </label>
                       <label className="range-field">
-                        <span>显示高度</span>
+                        <span>角色高度</span>
                         <input
                           type="range"
                           min="60"
@@ -1084,6 +1238,21 @@ export function WorkshopView() {
                       </label>
                     </>
                   )}
+                </div>
+                <div className="advanced-save-row">
+                  <button
+                    className="advanced-save-button"
+                    type="button"
+                    disabled={!renderConfigDirty}
+                    onClick={() => void commitRenderConfig()}
+                  >
+                    保存高级设置
+                  </button>
+                  <span>
+                    {renderConfigDirty
+                      ? "有未保存的改动"
+                      : "当前设置已保存"}
+                  </span>
                 </div>
                 <button
                   className="advanced-future-button"
@@ -1127,7 +1296,7 @@ export function WorkshopView() {
                     <div className="module-plugin-row">
                       <span className="module-plugin-name">
                         <Bot size={15} />
-                        AI 插件
+                        角色档案
                       </span>
                       <select
                         value={pet.modulePlugins?.aiModuleId || ""}
@@ -1137,68 +1306,115 @@ export function WorkshopView() {
                           })
                         }
                       >
-                        <option value="">未绑定 AI 模块</option>
-                        {(state.aiModules || []).map((module) => (
-                          <option value={module.id} key={module.id}>
-                            {module.name}
+                        <option value="">未绑定角色档案</option>
+                        {(state.trainingProfiles || []).filter((profile) => profile.status !== "draft").map((profile) => (
+                          <option value={profile.id} key={profile.id}>
+                            {profile.name}
                           </option>
                         ))}
                       </select>
-                      <span className="module-plugin-kind">AI 模块</span>
+                      <span className="module-plugin-kind">角色档案</span>
                     </div>
 
-                    <div className="module-plugin-row module-plugin-row--custom">
+                    <div className="module-plugin-row module-plugin-row--bound">
                       <span className="module-plugin-name">
                         <Puzzle size={15} />
-                        自定义模组
+                        模组
                       </span>
-                      <div className="module-plugin-custom-controls">
-                        <select
-                          value={pet.modulePlugins?.custom?.source || "voice"}
-                          onChange={(event) =>
-                            saveCustomModulePlugin(
-                              event.target.value as "voice" | "ai" | "training",
-                              ""
-                            )
+                      <div className="module-bound-selector">
+                        <button
+                          className="module-picker-toggle"
+                          type="button"
+                          onClick={() =>
+                            setModulePickerOpen((current) => !current)
                           }
                         >
-                          <option value="voice">声音档案</option>
-                          <option value="ai">AI 模块</option>
-                          <option value="training">AI 档案</option>
-                        </select>
-                        <select
-                          value={pet.modulePlugins?.custom?.itemId || ""}
-                          onChange={(event) =>
-                            saveCustomModulePlugin(
-                              pet.modulePlugins?.custom?.source || "voice",
-                              event.target.value
+                          <Plus size={13} />
+                          添加模组
+                        </button>
+                        {modulePickerOpen && (
+                          <div className="module-add-menu">
+                            {(state.customModules || [])
+                              .filter(
+                                (module) =>
+                                  module.enabled !== false &&
+                                  !(
+                                    pet.modulePlugins?.boundModuleIds || []
+                                  ).includes(module.id)
+                              )
+                              .map((module) => (
+                                <button
+                                  type="button"
+                                  key={module.id}
+                                  onClick={() => {
+                                    saveModulePlugin({
+                                      boundModuleIds: [
+                                        ...new Set([
+                                          ...(pet.modulePlugins?.boundModuleIds ||
+                                            []),
+                                          module.id
+                                        ])
+                                      ]
+                                    });
+                                  }}
+                                >
+                                  <Plus size={13} />
+                                  {module.contextMenuLabel || module.name}
+                                </button>
+                              ))}
+                            {(state.customModules || []).filter(
+                              (module) =>
+                                module.enabled !== false &&
+                                !(
+                                  pet.modulePlugins?.boundModuleIds || []
+                                ).includes(module.id)
+                            ).length === 0 && (
+                              <span className="empty-copy">
+                                没有可添加的模组。
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <div className="module-bound-list">
+                          {(pet.modulePlugins?.boundModuleIds || [])
+                            .map((moduleId) =>
+                              state.customModules.find(
+                                (module) => module.id === moduleId
+                              )
                             )
-                          }
-                        >
-                          <option value="">未绑定内容</option>
-                          {(pet.modulePlugins?.custom?.source || "voice") ===
-                          "voice"
-                            ? (state.voiceProfiles || []).map((profile) => (
-                                <option value={profile.id} key={profile.id}>
-                                  {profile.name}
-                                </option>
-                              ))
-                            : (pet.modulePlugins?.custom?.source || "voice") ===
-                                "ai"
-                              ? (state.aiModules || []).map((module) => (
-                                <option value={module.id} key={module.id}>
-                                  {module.name}
-                                </option>
-                                ))
-                              : (state.trainingProfiles || []).map((profile) => (
-                                  <option value={profile.id} key={profile.id}>
-                                    {profile.name}
-                                  </option>
-                                ))}
-                        </select>
+                            .filter(
+                              (module) => Boolean(module)
+                            )
+                            .map((module) => (
+                              <span
+                                className={
+                                  module!.enabled === false
+                                    ? "module-bound-chip module-bound-chip--disabled"
+                                    : "module-bound-chip"
+                                }
+                                key={module!.id}
+                              >
+                                {module!.contextMenuLabel || module!.name}
+                                {module!.enabled === false ? "（已停用）" : ""}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    saveModulePlugin({
+                                      boundModuleIds: (
+                                        pet.modulePlugins?.boundModuleIds || []
+                                      ).filter((id) => id !== module!.id)
+                                    })
+                                  }
+                                >
+                                  <X size={12} />
+                                </button>
+                              </span>
+                            ))}
+                        </div>
                       </div>
-                      <span className="module-plugin-kind">可选类型</span>
+                      <span className="module-plugin-kind">右键菜单</span>
                     </div>
+
                   </div>
                 </div>
               </>
@@ -1325,6 +1541,163 @@ export function WorkshopView() {
                 ))}
               </div>
             </div>
+
+            <div className="action-preset-panel">
+              <div className="panel-heading">
+                <AudioLines size={17} />
+                <h3>角色语音</h3>
+              </div>
+              <p className="voice-line-hint">
+                导入 WAV 音频后，桌宠在桌面上会按下面的间隔随机说话：时间到了也有概率说、有概率不说。
+              </p>
+              <label className="voice-line-toggle">
+                <span>启用角色语音</span>
+                <input
+                  type="checkbox"
+                  checked={voiceLines.enabled}
+                  onChange={(event) =>
+                    void saveVoiceLines({ enabled: event.target.checked })
+                  }
+                />
+              </label>
+              <label className="range-field">
+                <span>播放间隔</span>
+                <input
+                  type="range"
+                  min="10"
+                  max="900"
+                  step="10"
+                  value={voiceLines.intervalSeconds}
+                  onChange={(event) =>
+                    void saveVoiceLines({
+                      intervalSeconds: Number(event.target.value)
+                    })
+                  }
+                />
+                <strong>
+                  {formatVoiceInterval(voiceLines.intervalSeconds)}
+                </strong>
+              </label>
+              <label className="range-field">
+                <span>播放概率</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={voiceLines.probability}
+                  onChange={(event) =>
+                    void saveVoiceLines({
+                      probability: Number(event.target.value)
+                    })
+                  }
+                />
+                <strong>{voiceLines.probability}%</strong>
+              </label>
+              <div className="voice-line-list">
+                {voiceLines.clips.map((clip) => (
+                  <div className="voice-line-row" key={clip.id}>
+                    <span title={clip.name}>{clip.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => previewVoiceLine(clip)}
+                    >
+                      播放
+                    </button>
+                    <button
+                      type="button"
+                      title="删除这段语音"
+                      onClick={() =>
+                        void window.deskPet
+                          .removeVoiceLine(pet.id, clip.id)
+                          .then(() => refresh())
+                      }
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+                {voiceLines.clips.length === 0 && (
+                  <p className="empty-copy">还没有导入角色语音。</p>
+                )}
+              </div>
+              <button
+                className="wide-secondary"
+                type="button"
+                onClick={() => void importVoiceLines()}
+              >
+                <Upload size={16} />
+                导入 WAV 语音
+              </button>
+              {voiceLineAudioUrl && (
+                <audio
+                  src={voiceLineAudioUrl}
+                  autoPlay
+                  onEnded={() => setVoiceLineAudioUrl("")}
+                />
+              )}
+            </div>
+              <div className="auto-dialogue-panel">
+                <div>
+                  <span className="section-kicker">AI 自动输出</span>
+                  <strong>{pet.name} 的自主行为</strong>
+                  <p>
+                    两个开关互相独立。关闭自动文字后，随机角色语音仍然可以播放；右键手动对话不受影响。
+                  </p>
+                </div>
+                <div className="auto-dialogue-row">
+                  <div>
+                    <strong>自动文字</strong>
+                    <span>让 AI 主动生成文字对话</span>
+                  </div>
+                  <button
+                    className={
+                      autoTextEnabled
+                        ? "auto-dialogue-button auto-dialogue-button--on"
+                        : "auto-dialogue-button auto-dialogue-button--off"
+                    }
+                    type="button"
+                    onClick={() =>
+                      void updateState({
+                        pets: state.pets.map((item) =>
+                          item.id === pet.id
+                            ? { ...item, autoTextEnabled: !autoTextEnabled }
+                            : item
+                        )
+                      })
+                    }
+                  >
+                    {autoTextEnabled ? <Bot size={14} /> : <X size={14} />}
+                    {autoTextEnabled ? "已开启" : "已关闭"}
+                  </button>
+                </div>
+                <div className="auto-dialogue-row">
+                  <div>
+                    <strong>自动语音</strong>
+                    <span>控制 AI 语音与随机角色语音</span>
+                  </div>
+                  <button
+                    className={
+                      autoVoiceEnabled
+                        ? "auto-dialogue-button auto-dialogue-button--on"
+                        : "auto-dialogue-button auto-dialogue-button--off"
+                    }
+                    type="button"
+                    onClick={() =>
+                      void updateState({
+                        pets: state.pets.map((item) =>
+                          item.id === pet.id
+                            ? { ...item, autoVoiceEnabled: !autoVoiceEnabled }
+                            : item
+                        )
+                      })
+                    }
+                  >
+                    {autoVoiceEnabled ? <Volume2 size={14} /> : <X size={14} />}
+                    {autoVoiceEnabled ? "已开启" : "已关闭"}
+                  </button>
+                </div>
+              </div>
           </>
         ) : (
           <p className="empty-copy">当前角色还没有可编辑的动作。</p>

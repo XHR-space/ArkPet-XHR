@@ -1,0 +1,14 @@
+{
+  "id": "builtin-dialog-skin",
+  "name": "对话框皮肤",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "author": "XHR-cpu23",
+  "description": "官方简洁本地对话窗口，可配置颜色、图片与圆角。",
+  "type": "dialog-box",
+  "scope": "pet",
+  "category": "dialog-skin",
+  "contextMenuLabel": "打开对话框",
+  "width": 320,
+  "height": 260
+}

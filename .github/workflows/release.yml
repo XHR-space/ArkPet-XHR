@@ -1,0 +1,155 @@
+name: Build Windows and macOS Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows installers
+        run: npm run dist:ci
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            release/*.exe
+
+  build-macos:
+    name: build-macos-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: macos-15-intel
+          - arch: arm64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Confirm build architecture
+        run: |
+          uname -m
+          test "$(node -p "process.arch")" = "${{ matrix.arch }}"
+
+      - name: Install dependencies with optional native packages
+        run: npm ci --include=optional
+
+      - name: Verify native dependencies
+        run: |
+          test -d "node_modules/@img/sharp-darwin-${{ matrix.arch }}"
+          test -d "node_modules/@img/sharp-libvips-darwin-${{ matrix.arch }}"
+
+      - name: Build macOS installer
+        run: npm run check && npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
+
+      - name: Verify packaged runtime
+        env:
+          EXPECTED_MAC_ARCH: ${{ matrix.arch }}
+        run: |
+          app="$(find release -name '*.app' -type d -print -quit)"
+          test -n "$app"
+          test -d "$app/Contents/Resources/app/node_modules/@img/sharp-darwin-${{ matrix.arch }}"
+          test -d "$app/Contents/Resources/app/node_modules/@img/sharp-libvips-darwin-${{ matrix.arch }}"
+          binary="$(find "$app/Contents/MacOS" -type f -print -quit)"
+          ELECTRON_RUN_AS_NODE=1 "$binary" "$app/Contents/Resources/app/scripts/verify-sharp.cjs"
+
+      - name: Upload macOS ${{ matrix.arch }} artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}-release
+          path: release/*.dmg
+
+  publish-release:
+    needs:
+      - build-windows
+      - build-macos
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read package version
+        id: package
+        run: |
+          VERSION=$(node -e "console.log(require('./package.json').version)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-files
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.package.outputs.version }}
+          name: ArkPet ${{ steps.package.outputs.version }}
+          body: |
+            ArkPet ${{ steps.package.outputs.version }}
+
+            【中文说明】
+            ArkPet 2.0.0 大版本更新，Windows 与 macOS 安装包均已提供。
+
+            主要变更：
+            - 软件名称调整为 ArkPet，更新应用图标、安装包名称和快捷方式
+            - 新增精力、好感、主动性联动：精力消耗会提升好感，好感影响主动性，低精力降低好感增长，精力耗尽会扣好感并自动收回
+            - 新增每角色独立的自动文字和自动语音开关，关闭后不再主动说话
+            - 文字与语音对话会根据角色档案 Skill 和实时精力、主动性、关系生成动态 Prompt
+            - 新增模组仓库：模组拥有独立版本，可在软件内检测更新并从仓库直接安装，无需重新发布软件
+            - 新增模组桥接接口，支持桌宠控制、对话、语音、独立存储、通知和窗口操作
+            - 新增基于 GitHub Releases 的自动更新检查，更新只替换程序文件并保留用户数据
+            - 用户数据统一保存在 `<软件目录>/data/user-data`，安装版和便携版都保留该目录
+            - 修复多桌宠对话串台、语音会话串音、重力关闭后倒着走、拖动时底层软件卡住等问题
+            - 修复角色舞台高级设置画面框被裁切、角色过小和位置不正确的问题
+            - 发行种子只保留三个“黍”角色、一个黍角色档案和一个黍语音模块，不包含个人模型、API 密钥、声音样本、使用时间或预设模组
+
+            【English】
+            ArkPet 2.0.0 is a major feature release. Windows and macOS installers are included.
+
+            Highlights:
+            - Renamed the application to ArkPet and updated the app icon, installer names, and shortcuts
+            - Added linked energy, affection, and initiative systems: spending energy raises affection, affection affects initiative, low energy slows affection gain, and exhaustion reduces affection before the pet is automatically recalled
+            - Added independent per-character switches for automatic text and automatic voice output
+            - Text and voice chat now combine the character Skill with live energy, initiative, and relationship data through a dynamic runtime Prompt
+            - Added a module registry with independent module versions, in-app update detection, and direct installation without a new application release
+            - Added a scoped module bridge API for pet control, chat, speech, isolated storage, notifications, and window actions
+            - Added automatic update checks through GitHub Releases; updates replace application files while preserving user data
+            - User data now lives under `<application>/data/user-data` for both installed and portable builds
+            - Fixed cross-pet chat leakage, crossed voice sessions, reverse walking with gravity disabled, background stalls while dragging, and advanced stage preview sizing
+            - The release seed contains only three Shu characters, one Shu role profile, and one Shu voice profile, with no personal models, API keys, voice samples, usage history, or preinstalled modules
+          overwrite_files: true
+          files: release-files/*

@@ -4,6 +4,7 @@ import {
   HardDrive,
   Home,
   Monitor,
+  Puzzle,
   Power,
   Sparkles,
   Wand2
@@ -13,9 +14,10 @@ import { useAppState } from "../state";
 import type { OverlayCommand } from "../types";
 import { HomeView } from "../views/HomeView";
 import { SettingsView } from "../views/SettingsView";
-import { TrainingView } from "../views/TrainingView";
+import { TrainingView } from "../views/TrainView";
 import { WakeView } from "../views/WakeView";
 import { WorkshopView } from "../views/WorkshopView";
+import { ModuleManagerView } from "../views/ModuleView";
 
 export type PetMode = "active" | "desktopSleeping" | "resting";
 
@@ -30,6 +32,7 @@ const navigation: NavItem[] = [
   { id: "wake", label: "桌宠行为控制", icon: Sparkles },
   { id: "workshop", label: "桌宠唤醒", icon: Wand2 },
   { id: "training", label: "个性化 AI 训练", icon: Brain },
+  { id: "modules", label: "模组管理", icon: Puzzle },
   { id: "settings", label: "数据与设置", icon: Database }
 ];
 
@@ -45,6 +48,27 @@ export function AppShell() {
     document.documentElement.dataset.theme =
       state?.settings.appearance?.theme || "default";
   }, [state?.settings.appearance?.theme]);
+
+  useEffect(() => {
+    if (!state || state.activeView !== "workshop") return;
+    if (
+      state.pets.every(
+        (pet) => pet.desktopRenderConfig || !pet.renderConfig
+      )
+    ) {
+      return;
+    }
+    void updateState({
+      pets: state.pets.map((pet) =>
+        pet.desktopRenderConfig || !pet.renderConfig
+          ? pet
+          : {
+              ...pet,
+              desktopRenderConfig: pet.renderConfig
+            }
+      )
+    });
+  }, [state?.activeView, state?.pets, updateState]);
 
   if (!state) {
     return (
@@ -97,7 +121,7 @@ export function AppShell() {
             <Monitor size={22} strokeWidth={2.2} />
           </div>
           <div>
-            <strong>桌宠工房</strong>
+              <strong>ArkPet</strong>
             <span>本地角色工作台</span>
           </div>
         </div>
@@ -160,6 +184,7 @@ export function AppShell() {
           {view === "wake" && <WakeView petMode={petMode} />}
           {view === "workshop" && <WorkshopView />}
           {view === "training" && <TrainingView />}
+          {view === "modules" && <ModuleManagerView />}
           {view === "settings" && <SettingsView />}
         </section>
 

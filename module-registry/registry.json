@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "repository": "XHR-cpu123/ArkPet-XHR",
+  "branch": "main",
+  "updatedAt": "2026-10-24",
+  "modules": [
+    {
+      "id": "builtin-dialog-skin",
+      "name": "对话框皮肤",
+      "version": "1.0.0",
+      "author": "XHR-cpu23",
+      "type": "dialog-box",
+      "category": "dialog-skin",
+      "scope": "pet",
+      "description": "官方简洁本地对话窗口，可配置颜色、图片与圆角。",
+      "contextMenuLabel": "打开对话框",
+      "bundled": true,
+      "basePath": "module-registry/mods/dialog-skin",
+      "files": ["module.json"],
+      "match": {
+        "category": "dialog-skin"
+      }
+    },
+    {
+      "id": "builtin-climb-platforms",
+      "name": "攀爬平台模组",
+      "version": "1.0.0",
+      "author": "XHR-cpu23",
+      "type": "interaction",
+      "category": "interaction",
+      "scope": "pet",
+      "description": "在重力状态下自动寻找桌面落脚点并攀爬。",
+      "contextMenuLabel": "攀爬平台模组",
+      "bundled": true,
+      "basePath": "module-registry/mods/climb-platforms",
+      "files": ["module.json"]
+    },
+    {
+      "id": "builtin-hunger-food",
+      "name": "吃饭模组",
+      "version": "1.0.0",
+      "author": "XHR-cpu23",
+      "type": "interaction",
+      "category": "interaction",
+      "scope": "pet",
+      "description": "显示饥饿值，并让桌宠寻找桌面上的食物。",
+      "contextMenuLabel": "查看饥饿值",
+      "bundled": true,
+      "basePath": "module-registry/mods/hunger-food",
+      "files": ["module.json"]
+    }
+  ]
+}

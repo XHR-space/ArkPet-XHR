@@ -4,6 +4,8 @@ export type PetAsset = {
   relativePath: string;
   url: string;
   size: number;
+  durationSeconds?: number;
+  transcript?: string;
   createdAt: string;
 };
 
@@ -70,10 +72,64 @@ export type PetRenderConfig = {
 export type PetModulePlugins = {
   voiceProfileId?: string;
   aiModuleId?: string;
+  boundModuleIds?: string[];
   custom?: {
     source: "voice" | "ai" | "training";
     itemId: string;
   };
+};
+
+export type PetVitals = {
+  energy: number;
+  initiative: number;
+  relationship: number;
+  zeroEnergySince?: string;
+  lastPhysicalInteractionAt?: string;
+  mood: string;
+  moodScore: number;
+  secondsToday: number;
+  secondsTotal: number;
+  todayKey: string;
+  lastSimulatedAt: string;
+  lastInteractionAt: string;
+  lastPetAt: string;
+  today: {
+    energyDelta: number;
+    initiativeDelta: number;
+    relationshipDelta: number;
+    interactions: number;
+    petCount: number;
+  };
+  recentEvents: WellbeingEvent[];
+};
+
+export type ModuleMetric = {
+  key: string;
+  label: string;
+  unit?: string;
+  min?: number;
+  max?: number;
+  tone?: "blue" | "orange" | "green";
+  decayPerMinute?: number;
+  warnBelow?: number;
+};
+
+export type PetModuleStateValue = number | string | boolean | null;
+
+export type PetVoiceClip = {
+  id: string;
+  name: string;
+  relativePath: string;
+  url: string;
+  size: number;
+  createdAt: string;
+};
+
+export type PetVoiceLines = {
+  enabled: boolean;
+  intervalSeconds: number;
+  probability: number;
+  clips: PetVoiceClip[];
 };
 
 export type PetProfile = {
@@ -85,6 +141,13 @@ export type PetProfile = {
   secondary: string;
   scale: number;
   greeting: string;
+  hunger: number;
+  hungerUpdatedAt?: string;
+  desktopRelationship?: number;
+  desktopSecondsToday?: number;
+  desktopSecondsTotal?: number;
+  desktopDayKey?: string;
+  desktopSampleAt?: string;
   avatarUrl?: string;
   assets: PetAsset[];
   animationMap: AnimationMap;
@@ -92,7 +155,14 @@ export type PetProfile = {
   boneMap?: BoneRoleMap;
   actionBindings?: ActionBindings;
   modulePlugins?: PetModulePlugins;
+  vitals?: PetVitals;
+  autoDialogueEnabled?: boolean;
+  autoTextEnabled?: boolean;
+  autoVoiceEnabled?: boolean;
+  moduleState?: Record<string, Record<string, PetModuleStateValue>>;
+  voiceLines?: PetVoiceLines;
   renderConfig?: PetRenderConfig;
+  desktopRenderConfig?: PetRenderConfig;
   createdAt: string;
   updatedAt: string;
 };
@@ -111,6 +181,8 @@ export type CharacterProfile = {
   relationship: number;
   mood: string;
   energy: number;
+  /** 只输出角色第一人称对话台词，不输出旁白。旁白仅作为语音合成的情绪参考，不对用户显示。 */
+  dialogueOnly?: boolean;
 };
 
 export type TrainingDocument = {
@@ -133,6 +205,8 @@ export type VoiceProfile = {
   id: string;
   name: string;
   samples: PetAsset[];
+  activeSampleId?: string;
+  defaultAiModuleId?: string;
   voiceId: string;
   engineType?: "api" | "local" | "gpt-sovits";
   baseUrl?: string;
@@ -140,8 +214,53 @@ export type VoiceProfile = {
   apiKey?: string;
   localModelPath?: string;
   referenceText?: string;
+  trainingClips?: PetAsset[];
+  trainingName?: string;
+  trainingStatus?: "draft" | "preparing" | "training" | "trained" | "error";
+  trainedModels?: {
+    gptPath: string;
+    sovitsPath: string;
+    trainedAt: string;
+  };
+  trainingError?: string;
   status?: "draft" | "analyzing" | "ready";
   createdAt: string;
+  /** 同上：语音合成只合成台词内容，旁白仅作为情绪参考，不生成为可见文本。 */
+  dialogueOnly?: boolean;
+};
+
+export type LocalModelKind = "tts" | "asr" | "llm";
+
+export type LocalModelFormat =
+  | "gpt-sovits"
+  | "whisper"
+  | "safetensors"
+  | "gguf"
+  | "api"
+  | "unknown";
+
+export type LocalModelRecord = {
+  id: string;
+  name: string;
+  kind: LocalModelKind;
+  format: LocalModelFormat;
+  sourcePath: string;
+  companionPaths: string[];
+  family?: string;
+  parameterSize?: string;
+  status: "ready" | "needs-files" | "invalid" | "unsupported";
+  validationMessage: string;
+  backend:
+    | "gpt-sovits"
+    | "transformers"
+    | "llama.cpp"
+    | "whisper"
+    | "api"
+    | "";
+  modelId?: string;
+  apiConfig?: ServiceConfig;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type AiModule = {
@@ -171,11 +290,14 @@ export type TrainingProfile = {
   name: string;
   petId?: string;
   status: "draft" | "training" | "ready";
+  localModelId?: string;
   character: CharacterProfile;
   documents: TrainingDocument[];
   memories: MemoryRecord[];
   voiceProfileIds: string[];
   aiModuleIds: string[];
+  /** 同上：对话只输出台词，不输出旁白。 */
+  dialogueOnly?: boolean;
   trainingConfig?: {
     baseModel: string;
     epochs: number;
@@ -198,6 +320,7 @@ export type AuxiliaryWindowConfig = {
 };
 
 export type ServiceConfig = {
+  mode: "local" | "api";
   baseUrl: string;
   model: string;
   apiKey: string;
@@ -205,6 +328,73 @@ export type ServiceConfig = {
 };
 
 export type ThemeName = "default" | "violet" | "azure" | "jade";
+
+export type CustomDialogModule = {
+  id: string;
+  name: string;
+  description: string;
+  kind: "dialog-box" | "interaction";
+  moduleScope: "global" | "pet";
+  moduleCategory:
+    | "dialog-skin"
+    | "auxiliary-window"
+    | "interaction"
+    | "external";
+  enabled?: boolean;
+  quickControl?: boolean;
+  builtinType?: "auxiliary-window" | "climb-platforms" | "hunger-food";
+  windowTitle?: string;
+  windowBody?: string;
+  windowWidth?: number;
+  windowHeight?: number;
+  climbChance?: number;
+  climbJumpChance?: number;
+  climbApproachChance?: number;
+  climbChainChance?: number;
+  climbChainDecay?: number;
+  climbHeightDecay?: number;
+  climbJumpIntervalSeconds?: number;
+  climbMaxWindows?: number;
+  climbMaxSteps?: number;
+  hungerDecayPerMinute?: number;
+  foodSeekIntervalSeconds?: number;
+  metrics?: ModuleMetric[];
+    apiVersion?: number;
+  version?: string;
+  author?: string;
+  entry?: string;
+  sourcePath?: string;
+  contextMenuLabel: string;
+  width: number;
+  height: number;
+  background: string;
+  borderColor: string;
+  borderRadius: number;
+  textColor: string;
+  userBubbleColor: string;
+  assistantBubbleColor: string;
+  fontFamily: string;
+  customCss: string;
+  backgroundImageUrl?: string;
+  userBubbleImageUrl?: string;
+  assistantBubbleImageUrl?: string;
+  decorationImageUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RegistryModule = {
+  id: string;
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  category: string;
+  installedVersion: string;
+  status: "available" | "update" | "installed";
+  source: "registry" | "local";
+  builtin: boolean;
+};
 
 export type AppSettings = {
   appearance: {
@@ -233,6 +423,15 @@ export type AppSettings = {
     asr: ServiceConfig;
     tts: ServiceConfig;
   };
+  chat: {
+    dialogModuleId: string;
+  };
+};
+
+export type LocalInferenceSelection = {
+  llmModelId: string;
+  asrModelId: string;
+  ttsModelId: string;
 };
 
 export type ActivityRecord = {
@@ -240,6 +439,7 @@ export type ActivityRecord = {
   type: string;
   text: string;
   createdAt: string;
+  petId?: string;
 };
 
 export type ChatMessage = {
@@ -249,6 +449,22 @@ export type ChatMessage = {
   createdAt: string;
   source?: string;
   warning?: string;
+  speech?: SpeechPlan;
+};
+
+export type SpeechSegment = {
+  text: string;
+  tone?: string;
+  pace?: "very_slow" | "slow" | "normal" | "fast" | "very_fast";
+  pitch?: "low" | "soft" | "normal" | "bright" | "high";
+  pause_after_ms?: number;
+};
+
+export type SpeechPlan = {
+  base_tone?: string;
+  default_pace?: SpeechSegment["pace"];
+  default_pitch?: SpeechSegment["pitch"];
+  segments?: SpeechSegment[];
 };
 
 export type WellbeingEvent = {
@@ -262,6 +478,8 @@ export type WellbeingState = {
   energy: number;
   initiative: number;
   relationship: number;
+  zeroEnergySince?: string;
+  lastPhysicalInteractionAt?: string;
   mood: string;
   moodScore: number;
   lastSimulatedAt: string;
@@ -290,6 +508,9 @@ export type AppState = {
   memories: MemoryRecord[];
   conversations: ChatMessage[];
   voiceProfiles: VoiceProfile[];
+  localModels: LocalModelRecord[];
+  localInference: LocalInferenceSelection;
+  customModules: CustomDialogModule[];
   aiModules: AiModule[];
   trainingProfiles: TrainingProfile[];
   activeTrainingProfileId: string;
@@ -337,6 +558,27 @@ export type ChatResult = {
   source: string;
   action?: string;
   warning?: string;
+  speech?: SpeechPlan;
+};
+
+export type UpdateStatus = {
+  status:
+    | "idle"
+    | "development"
+    | "checking"
+    | "downloading"
+    | "ready"
+    | "up-to-date"
+    | "error";
+  currentVersion: string;
+  latestVersion: string;
+  progress: number;
+  assetName: string;
+  releaseUrl: string;
+  downloadedPath: string;
+  portable: boolean;
+  error: string;
+  checkedAt: string;
 };
 
 export type TestResult = {
@@ -351,14 +593,65 @@ export type VoiceResult = {
   error?: string;
 };
 
+export type VoiceAgentTurnResult = {
+  ok: boolean;
+  transcript?: string;
+  reply?: string;
+  source?: string;
+  warning?: string;
+  audioDataUrl?: string;
+  error?: string;
+};
+
 export type DeskPetApi = {
+  physicsDebug: boolean;
+  debugPhysicsLog: (message: string) => void;
   getState: () => Promise<AppState>;
   updateState: (patch: Partial<AppState> | Record<string, unknown>) => Promise<AppState>;
   updateStateSync: (
     patch: Partial<AppState> | Record<string, unknown>
   ) => AppState;
   replaceState: (state: AppState) => Promise<AppState>;
+  applyPetPatch: (
+    petId: string,
+    patch: {
+      vitals?: Partial<PetVitals>;
+      moduleState?: Record<string, Record<string, PetModuleStateValue>>;
+    }
+  ) => Promise<AppState>;
+  importVoiceLines: (petId: string) => Promise<{
+    canceled: boolean;
+    clips?: PetVoiceClip[];
+    state?: AppState;
+  }>;
+  removeVoiceLine: (petId: string, clipId: string) => Promise<AppState>;
   getDisplayMetrics: () => Promise<DisplayMetrics>;
+  getDesktopIcons: () => Promise<
+    Array<{
+      name: string;
+      foodPath: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }>
+  >;
+  consumeFood: (
+    foodPath: string,
+    options?: { allowOutsideDesktop?: boolean }
+  ) => Promise<{
+    ok: boolean;
+    error?: string;
+  }>;
+  onFoodDrop: (
+    callback: (payload: {
+      ok: boolean;
+      petId: string;
+      fileName?: string;
+      filePath?: string;
+      error?: string;
+    }) => void
+  ) => () => void;
   getControlBounds: () => Promise<{
     x: number;
     y: number;
@@ -371,7 +664,57 @@ export type DeskPetApi = {
   overlayCommand: (command: OverlayCommand) => Promise<AppState>;
   hideOverlay: () => Promise<boolean>;
   setOverlayMouseIgnore: (ignore: boolean) => void;
+  setOverlayFocusable: (focusable: boolean) => void;
   openAuxiliary: (id: string) => Promise<boolean>;
+  openChat: (
+    mode: "text" | "voice",
+    dialogModuleId?: string
+  ) => Promise<boolean>;
+  importExternalModule: () => Promise<{
+    canceled: boolean;
+    module?: CustomDialogModule;
+    error?: string;
+  }>;
+  importModuleArchive: () => Promise<{
+    canceled?: boolean;
+    module?: CustomDialogModule;
+    error?: string;
+  }>;
+  listRegistryModules: (force?: boolean) => Promise<{
+    ok: boolean;
+    modules: RegistryModule[];
+    error?: string;
+  }>;
+  installRegistryModule: (moduleId: string) => Promise<{
+    ok: boolean;
+    module?: RegistryModule;
+    state?: AppState;
+    error?: string;
+  }>;
+  createExampleModule: (
+    manifestText: string,
+    htmlText: string
+  ) => Promise<{ ok: boolean; folder?: string }>;
+  openExternalModule: (moduleId: string) => Promise<boolean>;
+  openExternalUrl: (url: string) => Promise<{ ok: boolean }>;
+  clipboardWrite: (text: string) => Promise<{ ok: boolean }>;
+  triggerExternalModule: (
+    moduleId: string,
+    petId?: string,
+    origin?: {
+      x: number;
+      y: number;
+      stepX?: number;
+      stepY?: number;
+    }
+  ) => Promise<
+    | boolean
+    | { x: number; y: number; width: number; height: number }
+  >;
+  chooseModuleImage: (
+    moduleId: string,
+    slot: "background" | "user" | "assistant" | "decoration"
+  ) => Promise<{ canceled: boolean; url?: string; error?: string }>;
   importPetAssets: (petId: string) => Promise<{
     canceled: boolean;
     assets?: PetAsset[];
@@ -404,6 +747,42 @@ export type DeskPetApi = {
     samples?: PetAsset[];
     state?: AppState;
   }>;
+  stageVoiceSamples: (draftId: string) => Promise<{
+    canceled: boolean;
+    samples?: PetAsset[];
+  }>;
+  removeStagedVoiceSample: (relativePath: string) => Promise<boolean>;
+  transcribeVoiceTrainingSample: (relativePath: string) => Promise<{
+    ok: boolean;
+    text?: string;
+    durationSeconds?: number;
+    error?: string;
+  }>;
+  getVoiceTrainingRuntime: () => Promise<{
+    ready: boolean;
+    progress: number;
+    phase: string;
+    message: string;
+    cuda?: string;
+    device?: string;
+  }>;
+  prepareVoiceTraining: (
+    profileId: string,
+    clips: PetAsset[]
+  ) => Promise<{ ok: boolean; datasetPath?: string; error?: string }>;
+  chooseLocalModel: (
+    kind: LocalModelKind,
+    mode?: "file" | "folder"
+  ) => Promise<{
+    canceled: boolean;
+    path?: string;
+  }>;
+  inspectLocalModel: (
+    kind: LocalModelKind,
+    sourcePath: string
+  ) => Promise<{ ok: boolean; model?: LocalModelRecord; error?: string }>;
+  addLocalModel: (model: LocalModelRecord) => Promise<AppState>;
+  removeLocalModel: (modelId: string) => Promise<AppState>;
   importTrainingAudio: () => Promise<{
     canceled: boolean;
     ok?: boolean;
@@ -411,7 +790,49 @@ export type DeskPetApi = {
     error?: string;
   }>;
   testService: (service: "llm" | "asr" | "tts") => Promise<TestResult>;
-  chat: (messages: Array<{ role: "user" | "assistant"; content: string }>) => Promise<ChatResult>;
+  ttsInstallStatus: () => Promise<{ installed: boolean; engine: string; message: string; path?: string; gptInstalled?: boolean; sovitsInstalled?: boolean }>;
+  ttsOpenDownload: (engine: "gpt" | "index") => Promise<{ ok: boolean }>;
+  ttsRemoveSelection: () => Promise<AppState>;
+  voiceEngineStatus: () => Promise<{
+    installed: boolean;
+    root: string;
+    engineDir: string;
+    missing: string[];
+    customRoot: string;
+    restartRequired: boolean;
+    source: "custom" | "bundled" | "missing";
+    message: string;
+  }>;
+  chooseVoiceEngine: () => Promise<{
+    canceled?: boolean;
+    ok?: boolean;
+    error?: string;
+    restartRequired?: boolean;
+    engineDir?: string;
+  }>;
+  clearVoiceEngine: () => Promise<{ ok: boolean; restartRequired: boolean }>;
+  openVoiceEngineDownload: () => Promise<{ ok: boolean }>;
+  relaunchApp: () => Promise<{ ok: boolean }>;
+  voiceEngineInfo: () => Promise<{
+    device: string;
+    label: string;
+    cudaAvailable: boolean;
+    runtimes: Array<{ label: string; device: string; exists: boolean }>;
+  }>;
+  chat: (
+    messages: Array<{ role: "user" | "assistant"; content: string }>,
+    aiModuleId?: string,
+    petId?: string
+  ) => Promise<ChatResult>;
+  chatStream: (
+    messages: Array<{ role: "user" | "assistant"; content: string }>,
+    aiModuleId?: string,
+    requestId?: string,
+    petId?: string
+  ) => Promise<ChatResult>;
+  onChatStream: (
+    callback: (payload: { delta?: string; requestId?: string }) => void
+  ) => () => void;
   speak: (
     text: string,
     voiceId?: string,
@@ -425,6 +846,54 @@ export type DeskPetApi = {
       referenceText?: string;
     }
   ) => Promise<VoiceResult>;
+  voiceAgent: {
+    setModel: (
+      kind: LocalModelKind,
+      modelId: string
+    ) => Promise<AppState>;
+    transcribe: (
+      audioBytes: Uint8Array
+    ) => Promise<{ ok: boolean; text?: string; error?: string }>;
+    reply: (
+      text: string,
+      options?: { aiModuleId?: string }
+    ) => Promise<ChatResult>;
+    speak: (
+      text: string,
+      options?: { voiceProfileId?: string; speech?: SpeechPlan }
+    ) => Promise<VoiceResult>;
+    turn: (
+      audioBytes: Uint8Array,
+      options?: { voiceProfileId?: string }
+    ) => Promise<VoiceAgentTurnResult>;
+    warmup: () => Promise<{ asr: boolean; tts: boolean; errors: string[] }>;
+    turnStream: (
+      audioBytes: Uint8Array,
+      options?: {
+        voiceProfileId?: string;
+        aiModuleId?: string;
+        sessionId?: string;
+        petId?: string;
+      }
+    ) => Promise<{
+      ok: boolean;
+      text?: string;
+      transcript?: string;
+      spokenCount?: number;
+      error?: string;
+    }>;
+    onAudioChunk: (
+      callback: (payload: {
+        sessionId?: string;
+        index: number;
+        text: string;
+        audioDataUrl: string;
+      }) => void
+    ) => () => void;
+    onTranscript: (
+      callback: (payload: { sessionId?: string; text: string }) => void
+    ) => () => void;
+  };
   startTraining: (profileId: string) => Promise<{
     ok: boolean;
     moduleId?: string;
@@ -438,17 +907,42 @@ export type DeskPetApi = {
     statePath: string;
     assetsPath: string;
     petStorePath: string;
+    softwarePath: string;
+    softwareDataPath: string;
+    appPath: string;
+    updateCachePath: string;
   }>;
   syncPetStore: () => Promise<{ ok: boolean; count: number }>;
   openPetStore: () => Promise<boolean>;
   openDataFolder: () => Promise<boolean>;
+  openSoftwareFolder: () => Promise<boolean>;
+  updateStatus: () => Promise<UpdateStatus>;
+  checkForUpdates: () => Promise<UpdateStatus>;
+  installUpdate: () => Promise<boolean>;
+  onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void;
   exportBackup: () => Promise<{ canceled: boolean; folder?: string }>;
-  importBackup: () => Promise<{ canceled: boolean; state?: AppState }>;
+  importBackup: () => Promise<{
+    canceled: boolean;
+    ok?: boolean;
+    error?: string;
+    state?: AppState;
+  }>;
   onStateChanged: (callback: (state: AppState) => void) => () => void;
   onOverlayCommand: (callback: (command: OverlayCommand) => void) => () => void;
   onOverlayMode: (callback: (mode: OverlayCommand["type"]) => void) => () => void;
   onOverlaySettings: (
     callback: (settings: AppSettings["overlay"]) => void
+  ) => () => void;
+  onClimbPlatformChanged: (
+    callback: (payload: {
+      id: string;
+      petId: string;
+      closed: boolean;
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+    }) => void
   ) => () => void;
   onDisplayChanged: (callback: (metrics: DisplayMetrics) => void) => () => void;
 };

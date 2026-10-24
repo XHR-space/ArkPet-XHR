@@ -6,6 +6,7 @@ import {
   FilePlus2,
   MessageCircle,
   Mic,
+  Package,
   Plus,
   Radio,
   Save,
@@ -16,11 +17,15 @@ import {
 } from "lucide-react";
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import { makeId } from "../lib/id";
+import { makeUniqueName } from "../lib/id";
+import { ModelManagerView } from "../components/ModelView";
+import { VoiceModuleView } from "../components/VoiceView";
 import {
   appendWellbeingEvent,
-  ensureWellbeing,
-  recordWellbeingInteraction
+  recordWellbeingInteraction,
+  RELATIONSHIP_MAX
 } from "../lib/wellbeing";
+import { ensurePetVitals } from "../lib/petVitals";
 import { useAppState } from "../state";
 import type {
   AppSettings,
@@ -36,11 +41,14 @@ type TrainingTab =
   | "memories"
   | "chat"
   | "voice"
+  | "models"
   | "modules";
 
 const tabs: Array<{ id: TrainingTab; label: string; icon: typeof UserRound }> = [
-  { id: "profile", label: "AI 模块", icon: Brain },
-  { id: "voice", label: "声音模块", icon: AudioLines }
+  { id: "profile", label: "角色档案", icon: Brain },
+  { id: "chat", label: "文字对话", icon: MessageCircle },
+  { id: "voice", label: "声音模块", icon: AudioLines },
+  { id: "models", label: "模型管理", icon: Package }
 ];
 
 export function TrainingView() {
@@ -63,6 +71,7 @@ export function TrainingView() {
   );
   const [trainingBusy, setTrainingBusy] = useState(false);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
+  const [profileNameError, setProfileNameError] = useState("");
   const [selectedVoiceProfileId, setSelectedVoiceProfileId] = useState("");
 
   if (!state) return null;
@@ -81,47 +90,157 @@ export function TrainingView() {
   const profileCharacter = activeProfile?.character || currentState.character;
   const profileDocuments = activeProfile?.documents || currentState.documents;
   const profileMemories = activeProfile?.memories || currentState.memories;
+  const promptPet =
+    currentState.pets.find((pet) => pet.id === currentState.activePetId) ||
+    currentState.pets[0];
+  const promptVitals = promptPet
+    ? ensurePetVitals(promptPet, currentState.character)
+    : null;
+    const promptEnergy = Math.max(0, Math.min(100, Number(promptVitals?.energy ?? 0)));
+    const promptInitiative = Math.max(0, Math.min(100, Number(promptVitals?.initiative ?? 0)));
+    const promptRelationship = Math.max(0, Math.min(RELATIONSHIP_MAX, Number(promptVitals?.relationship ?? 0)));
+    const promptEnergyRatio = Math.round((promptEnergy / 100) * 100) / 100;
+    const promptInitiativeRatio = Math.round((promptInitiative / 100) * 100) / 100;
+    const promptRelationshipRatio =
+      Math.round((promptRelationship / RELATIONSHIP_MAX) * 100) / 100;
+    const promptEnergyBand =
+      promptEnergyRatio >= 0.7
+        ? "high"
+        : promptEnergyRatio >= 0.4
+          ? "steady"
+          : promptEnergyRatio >= 0.2
+            ? "tired"
+            : promptEnergyRatio > 0
+              ? "very_low"
+              : "exhausted";
+    const promptInitiativeBand =
+      promptInitiativeRatio >= 0.75
+        ? "high"
+        : promptInitiativeRatio >= 0.5
+          ? "medium"
+          : promptInitiativeRatio >= 0.3
+            ? "low"
+            : "passive";
+    const promptRelationshipBand =
+      promptRelationshipRatio >= 0.8
+        ? "deep_trust"
+        : promptRelationshipRatio >= 0.5
+          ? "trusted"
+          : promptRelationshipRatio >= 0.3
+            ? "close"
+            : promptRelationshipRatio >= 0.15
+              ? "familiarizing"
+              : "distant";
+  const runtimePromptPreview = promptVitals
+    ? [
+          "<runtime_state>",
+          JSON.stringify(
+            {
+              energy: {
+                raw: Math.round(promptEnergy),
+                normalized: promptEnergyRatio,
+                band: promptEnergyBand
+              },
+              initiative: {
+                raw: Math.round(promptInitiative),
+                normalized: promptInitiativeRatio,
+                band: promptInitiativeBand
+              },
+              relationship: {
+                raw: Math.round(promptRelationship),
+                normalized: promptRelationshipRatio,
+                max: RELATIONSHIP_MAX,
+                band: promptRelationshipBand
+              },
+              mood: promptVitals.mood || "平静"
+            },
+            null,
+            2
+          ),
+          "</runtime_state>",
+          "<runtime_policy>",
+          JSON.stringify(
+            {
+              reply_length:
+                promptEnergyBand === "high"
+                  ? "normal"
+                  : promptEnergyBand === "steady"
+                    ? "normal_to_short"
+                    : promptEnergyBand === "tired"
+                      ? "short"
+                      : promptEnergyBand === "very_low"
+                        ? "very_short"
+                        : "minimal",
+              proactivity: promptInitiativeBand,
+              question_budget:
+                promptInitiativeBand === "high"
+                  ? 2
+                  : promptInitiativeBand === "medium"
+                    ? 1
+                    : 0,
+              warmth: promptRelationshipBand,
+              initiative_behavior:
+                promptInitiativeBand === "high"
+                  ? "may_initiate_topic_or_suggestion"
+                  : promptInitiativeBand === "medium"
+                    ? "respond_and_occasionally_follow_up"
+                    : "respond_without_pushing_topic",
+              energy_behavior:
+                promptEnergyBand === "exhausted"
+                  ? "necessary_reply_only"
+                  : promptEnergyBand === "very_low"
+                    ? "avoid_enthusiasm_and_long_explanation"
+                    : promptEnergyBand === "tired"
+                      ? "reduce_detail_and_slow_down"
+                      : "normal_expression",
+              state_visibility: "hidden"
+            },
+            null,
+            2
+          ),
+          "</runtime_policy>"
+      ].join("\n")
+    : "当前没有可用于生成运行时 Prompt 的桌宠。";
+    const previewSkill = {
+      skill_version: 1,
+      identity: {
+        name: profileCharacter.name || activeProfile?.name || "桌宠",
+        role: profileCharacter.role || "桌面伙伴",
+        personality:
+          profileCharacter.personality || "自然、敏锐、有自己的判断。",
+        worldview:
+          profileCharacter.worldview || "生活在用户桌面中的长期伙伴。",
+        cares_about:
+          profileCharacter.likes || "重要的人和事。",
+        aversions_and_weaknesses:
+          profileCharacter.dislikes || "被误解、失去重要联系、无法掌握局面。"
+      },
+      style: {
+        speaking_style:
+          profileCharacter.speakingStyle || "短句为主，自然，偶尔反问。",
+        conversation_mode: "real_time_first_person_chat",
+        variability: "自然变化，不要每次使用相同热情、礼貌或句式。"
+      },
+      social: {
+        user_relationship_rule:
+          profileCharacter.boundaries || "把用户视为长期相处的伙伴。",
+        familiarity_source: "runtime_state.relationship"
+      }
+    };
   const activeSkillPrompt = [
-    "# Character Skill",
-    "你不是通用助手。你必须以这个角色的身份、视角和边界行动。",
+      "<role_skill>",
+      JSON.stringify(previewSkill, null, 2),
+      "</role_skill>",
     "",
-    "## Identity",
-    `- 名称：${profileCharacter.name || activeProfile?.name || "桌宠"}`,
-    `- 身份：${profileCharacter.role || "桌面伙伴"}`,
-    `- 性格：${profileCharacter.personality || "自然、稳定、有边界。"}`,
-    `- 说话方式：${profileCharacter.speakingStyle || "用简短自然的中文回应。"}`,
-    `- 世界观与经历：${profileCharacter.worldview || "你生活在这台电脑的桌面中。"}`,
-    `- 喜欢：${profileCharacter.likes || "陪伴用户完成手头的事。"}`,
-    `- 不喜欢：${profileCharacter.dislikes || "被当成没有想法的工具。"}`,
-    `- 行为边界：${profileCharacter.boundaries || "不编造确定事实，不替用户做重要决定。"}`,
-    `- 主动性：${Number(profileCharacter.initiative ?? 55)}/100`,
-    "",
-    "## Primary Objective",
-    `- 以“${profileCharacter.name || activeProfile?.name || "桌宠"}”的视角与用户交谈，保持角色一致性。`,
-    "- 记住用户和角色之间已经发生的重要事情。",
-    "- 在合适的时候表现出偏好、情绪、疑问和自身判断。",
-    "- 当用户只是聊天时，用自然短句回应。",
-    "- 当用户需要帮助时，先判断角色会怎样理解这件事，再给出符合角色的回馈。",
-    "",
-    "## Behavior Rules",
-    "- 不要机械复述设定。",
-    "- 不要声称自己是现实人类。",
-    "- 不要无故替用户做重大决定。",
-    "- 不确定的事实要明确说不确定，而不是编造。",
-    "- 可以拒绝、犹豫、反问、表达轻微不满或开心。",
-    "- 如果用户要求你保持安静，就减少主动输出。",
-    "",
-    "## Action Protocol",
-    "如果需要桌宠执行动作，只返回严格 JSON，不要加解释文字：",
-    '{"reply":"给用户看的一句话","action":"none|walk|sleep|rest|open_window|idle|approach|avoid","emotion":"平静|开心|疑惑|不满|困倦|认真"}',
-    "如果不需要动作，则直接返回普通文本。",
-    "不要编造不存在的 action。",
-    "",
-    "## Response Style",
-    "- 默认 1 到 4 句。",
-    "- 优先使用角色的口吻，而不是说明自己在扮演角色。",
-    "- 回答要具体，不要只重复用户的话。",
-    "- 在桌宠场景里，回复应像角色真的在桌面上和你相处。"
+      "<output_contract>",
+      "priority=output_contract>role_skill.identity>role_skill.style>runtime_policy>memory",
+      "reply_channel=visible_dialogue_only",
+      "default_sentence_count=1..3",
+      "forbidden=markdown|bullet_list|analysis|meta_commentary|assistant_voice",
+      "state_values_visibility=hidden",
+      "profile_visibility=hidden",
+      "speech_marker=[[SPEECH]]",
+      "</output_contract>"
   ].join("\n");
 
   async function saveProfilePatch(patch: Partial<TrainingProfile>) {
@@ -226,7 +345,7 @@ export function TrainingView() {
         )
         .find(Boolean) || currentState.voiceProfiles[0];
     if (!source) {
-      window.alert("当前 AI 模块还没有可用作声音来源的角色声音档案。");
+        window.alert("当前角色档案还没有可用作声音来源的角色声音档案。");
       return;
     }
     const now = new Date().toISOString();
@@ -345,9 +464,10 @@ export function TrainingView() {
     const now = new Date().toISOString();
     const nextProfile: TrainingProfile = {
       id: makeId("training"),
-      name: "新 AI 模块",
+      name: "新角色档案",
       petId: currentState.activePetId,
       status: "draft",
+      localModelId: "",
       character: {
         ...currentState.character,
         name: "新角色"
@@ -376,6 +496,7 @@ export function TrainingView() {
       ...activeProfile,
       id: makeId("training"),
       name: `${activeProfile.name} 副本`,
+      status: "draft",
       createdAt: now,
       updatedAt: now,
       documents: activeProfile.documents.map((document) => ({
@@ -398,18 +519,18 @@ export function TrainingView() {
   }
 
   async function deleteTrainingProfile() {
-    if (!activeProfile || trainingProfiles.length <= 1) return;
+    if (!activeProfile) return;
     if (!window.confirm(`确定删除“${activeProfile.name}”吗？`)) return;
     const remaining = trainingProfiles.filter(
       (profile) => profile.id !== activeProfile.id
     );
-    const nextActive = remaining[0];
+    const nextActive = remaining[0] || null;
     await updateState({
       trainingProfiles: remaining,
-      activeTrainingProfileId: nextActive.id,
-      character: nextActive.character,
-      documents: nextActive.documents,
-      memories: nextActive.memories
+      activeTrainingProfileId: nextActive?.id || "",
+      character: nextActive?.character || currentState.character,
+      documents: nextActive?.documents || [],
+      memories: nextActive?.memories || []
     });
     setActiveTab("profile");
   }
@@ -425,57 +546,85 @@ export function TrainingView() {
       content,
       createdAt: new Date().toISOString()
     };
+    const assistantMessage: ChatMessage = {
+      id: makeId("chat"),
+      role: "assistant",
+      content: "",
+      createdAt: new Date().toISOString()
+    };
     const nextMessages = [...messages, userMessage];
-    setMessages(nextMessages);
+    setMessages([...nextMessages, assistantMessage]);
     setDraftMessage("");
     setChatBusy(true);
+    const requestId = makeId("chatreq");
+    const unsubscribe = window.deskPet.onChatStream(
+      ({ delta, requestId: incomingId }) => {
+        if (!delta) return;
+        if (incomingId && incomingId !== requestId) return;
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantMessage.id
+              ? { ...message, content: `${message.content}${delta}` }
+              : message
+          )
+        );
+      }
+    );
 
     try {
-      const response = await window.deskPet.chat(
+      const response = await window.deskPet.chatStream(
         nextMessages.map((message) => ({
           role: message.role,
           content: message.content
-        }))
+        })),
+        activeProfile?.id,
+          requestId,
+          currentState.activePetId
       );
-      const assistantMessage: ChatMessage = {
-        id: makeId("chat"),
-        role: "assistant",
+      const completedAssistant: ChatMessage = {
+        ...assistantMessage,
         content: response.text,
         source: response.source,
         warning: response.warning,
+        speech: response.speech,
         createdAt: new Date().toISOString()
       };
-      const completed = [...nextMessages, assistantMessage];
+      const completed = [...nextMessages, completedAssistant];
       setMessages(completed);
       const interactionTime = Date.now();
-      const currentWellbeing = ensureWellbeing(
-        currentState.wellbeing,
-        profileCharacter
-      );
-      const nextWellbeing = appendWellbeingEvent(
-        recordWellbeingInteraction(
-          currentWellbeing,
-          profileCharacter,
+      const chatPet =
+        currentState.pets.find(
+          (item) => item.id === currentState.activePetId
+        ) || currentState.pets[0];
+      if (chatPet) {
+        const nextVitals = appendWellbeingEvent(
+          recordWellbeingInteraction(
+            ensurePetVitals(chatPet, profileCharacter),
+            profileCharacter,
+            "chat",
+            interactionTime
+          ),
           "chat",
+          "完成了一次角色对话，关系与主动性有所提升。",
           interactionTime
-        ),
-        "chat",
-        "完成了一次角色对话，关系与主动性有所提升。",
-        interactionTime
-      );
+        );
+        await window.deskPet.applyPetPatch(chatPet.id, {
+          vitals: nextVitals
+        });
+      }
       await updateState({
         conversations: [
           ...currentState.conversations,
           userMessage,
-          assistantMessage
+          completedAssistant
         ].slice(-80),
         stats: {
           ...currentState.stats,
           chatCount: currentState.stats.chatCount + 1
-        },
-        wellbeing: nextWellbeing
+        }
       });
     } finally {
+      unsubscribe();
       setChatBusy(false);
     }
   }
@@ -542,8 +691,10 @@ export function TrainingView() {
             <h3>模块库</h3>
           </div>
           <div className="training-profile-list">
-            <div className="module-library-section-title">AI 模块</div>
-            {trainingProfiles.map((profile) => (
+            <div className="module-library-section-title">角色档案</div>
+            {trainingProfiles
+              .filter((profile) => profile.status !== "draft")
+              .map((profile) => (
               <button
                 className={
                   profile.id === activeProfile?.id
@@ -580,16 +731,31 @@ export function TrainingView() {
                   }
                 />
               </button>
-            ))}
+              ))}
+            {trainingProfiles.filter((profile) => profile.status !== "draft")
+              .length === 0 && (
+                <p className="empty-copy">还没有保存到库的角色档案。</p>
+            )}
             <div className="module-library-section-title">声音模块</div>
             {currentState.voiceProfiles.map((profile) => (
               <button
-                className="pet-list-item"
+                className={
+                  profile.id === selectedVoiceProfileId
+                    ? "pet-list-item pet-list-item--active"
+                    : "pet-list-item"
+                }
                 key={profile.id}
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   setSelectedVoiceProfileId(profile.id);
                   setActiveTab("voice");
+                  await updateState({
+                    pets: currentState.pets.map((pet) =>
+                      pet.id === currentState.activePetId
+                        ? { ...pet, modulePlugins: { ...pet.modulePlugins, voiceProfileId: profile.id } }
+                        : pet
+                    )
+                  });
                 }}
               >
                 <span className="pet-dot" style={{ background: "#4f88b8" }} />
@@ -613,7 +779,7 @@ export function TrainingView() {
                 <div className="profile-editor-dialog-header">
                   <div>
                     <span className="section-kicker">角色专属档案</span>
-                    <h2>{activeProfile?.name || "AI 模块档案"}</h2>
+                      <h2>{activeProfile?.name || "角色档案"}</h2>
                   </div>
                   <button
                     type="button"
@@ -624,10 +790,10 @@ export function TrainingView() {
                 </div>
                 <div className="form-section">
               <div className="section-heading">
-                <span className="section-kicker">AI 模块</span>
-                <h2>制作角色档案与专属 AI 模块</h2>
+                  <span className="section-kicker">角色档案</span>
+                  <h2>制作角色档案</h2>
                 <p>
-                  角色档案已经成为 AI 模块的一部分。填写这里的内容后，训练、Skill / Prompt 和对话都会读取同一份档案。
+                    角色档案负责稳定的身份、性格和语言方式，相当于角色 Skill。精力、主动性、关系属于运行时状态，会在每次文字/语音对话时动态追加为 Prompt，并且不会覆盖角色档案。
                 </p>
               </div>
               <div className="form-grid">
@@ -675,66 +841,38 @@ export function TrainingView() {
                   />
                 </label>
                 <label>
-                  <span>喜欢的事情</span>
+                  <span>核心在意的事情</span>
                   <input
                     key={`${profileCharacter.likes}-likes`}
                     defaultValue={profileCharacter.likes}
+                    placeholder="例如：守护重要的人，维持秩序，探索未知..."
                     onBlur={(event) => saveCharacter({ likes: event.target.value })}
                   />
                 </label>
                 <label>
-                  <span>不喜欢的事情</span>
+                  <span>抗拒与弱点</span>
                   <input
                     key={`${profileCharacter.dislikes}-dislikes`}
                     defaultValue={profileCharacter.dislikes}
+                    placeholder="例如：害怕被抛弃，不愿承认失败..."
                     onBlur={(event) => saveCharacter({ dislikes: event.target.value })}
                   />
                 </label>
                 <label className="full-field">
-                  <span>行为边界</span>
-                  <input
+                  <span>与用户的关系</span>
+                  <textarea
                     key={`${profileCharacter.boundaries}-boundaries`}
                     defaultValue={profileCharacter.boundaries}
+                    rows={3}
+                    placeholder="例如：把用户当作并肩作战的搭档，但不会无条件服从..."
                     onBlur={(event) => saveCharacter({ boundaries: event.target.value })}
                   />
-                </label>
-              </div>
-              <div className="range-grid">
-                <label className="range-field">
-                  <span>主动性</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={profileCharacter.initiative}
-                    onChange={(event) =>
-                      void saveCharacter({
-                        initiative: Number(event.target.value)
-                      })
-                    }
-                  />
-                  <strong>{profileCharacter.initiative}%</strong>
-                </label>
-                <label className="range-field">
-                  <span>创造力</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={Math.round(profileCharacter.temperature * 100)}
-                    onChange={(event) =>
-                      void saveCharacter({
-                        temperature: Number(event.target.value) / 100
-                      })
-                    }
-                  />
-                  <strong>{Math.round(profileCharacter.temperature * 100)}%</strong>
                 </label>
               </div>
               {activeProfile && (
                 <div className="profile-archive-footer">
                   <label>
-                    <span>AI 模块名称</span>
+                      <span>角色档案名称</span>
                     <input
                       key={`${activeProfile.id}-${activeProfile.name}`}
                       defaultValue={activeProfile.name}
@@ -746,12 +884,15 @@ export function TrainingView() {
                       }}
                     />
                   </label>
+                  {profileNameError && (
+                    <span className="name-error">名字已存在</span>
+                  )}
                   <button
                     type="button"
                     onClick={() => void duplicateTrainingProfile()}
                   >
                     <Copy size={16} />
-                    复制 AI 模块
+                      复制角色档案
                   </button>
                   <button
                     className="profile-archive-delete"
@@ -760,7 +901,7 @@ export function TrainingView() {
                     onClick={() => void deleteTrainingProfile()}
                   >
                     <Trash2 size={16} />
-                    删除 AI 模块
+                      删除角色档案
                   </button>
                 </div>
               )}
@@ -916,6 +1057,50 @@ export function TrainingView() {
                 <h2>检查角色是否保持自己的性格</h2>
                 <p>本地模型不可用时会使用内置角色回应，方便先测试页面和记忆结构。</p>
               </div>
+              <div className="chat-module-selector">
+                <label>
+                    <span>用于本次文字对话的角色档案</span>
+                  <select
+                    value={activeProfile?.id || ""}
+                    onChange={(event) => {
+                      const profile = trainingProfiles.find(
+                        (item) => item.id === event.target.value
+                      );
+                      if (!profile) return;
+                      setMessages([]);
+                      void selectTrainingProfile(profile);
+                    }}
+                  >
+                      <option value="">请选择角色档案</option>
+                    {trainingProfiles
+                      .filter((profile) => profile.status !== "draft")
+                      .map((profile) => (
+                        <option value={profile.id} key={profile.id}>
+                          {profile.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <span>
+                  {activeProfile
+                    ? `Skill：${activeProfile.character.name || activeProfile.name}`
+                    : "保存角色档案后才会出现在这里"}
+                </span>
+              </div>
+              <form
+                className="composer-inline chat-test-composer"
+                onSubmit={sendMessage}
+              >
+                <input
+                  value={draftMessage}
+                  autoFocus
+                  onChange={(event) => setDraftMessage(event.target.value)}
+                  placeholder="说点什么..."
+                />
+                <button type="submit" disabled={chatBusy || !draftMessage.trim()}>
+                  <Send size={17} />
+                </button>
+              </form>
               <div className="conversation-panel">
                 {messages.length === 0 && (
                   <div className="conversation-empty">
@@ -954,25 +1139,26 @@ export function TrainingView() {
                   </div>
                 ))}
               </div>
-              <form className="composer-inline chat-test-composer" onSubmit={sendMessage}>
-                <input
-                  value={draftMessage}
-                  onChange={(event) => setDraftMessage(event.target.value)}
-                  placeholder="说点什么..."
-                />
-                <button type="submit" disabled={chatBusy || !draftMessage.trim()}>
-                  <Send size={17} />
-                </button>
-              </form>
             </div>
           )}
 
           {activeTab === "voice" && (
+            <VoiceModuleView
+              selectedVoiceProfileId={selectedVoiceProfileId}
+              onSelectVoiceProfile={setSelectedVoiceProfileId}
+            />
+          )}
+          {activeTab === "models" && <ModelManagerView />}
+
+          {false && activeTab === "voice" && (
             <div className="form-section">
               <div className="section-heading">
                 <span className="section-kicker">声音档案</span>
                 <h2>把角色声线交给本地语音引擎</h2>
-                <p>桌宠负责保存声音样本和调用本地服务。声线克隆由外部本地引擎完成。</p>
+                <p>
+                  桌宠负责保存声音样本并调用本机 GPT-SoVITS。首次试听会自动启动 CPU
+                  引擎，需要等待模型加载。
+                </p>
               </div>
               {(["tts", "asr"] as const).map((service) => {
                 const config = currentState.settings.services[service];
@@ -1095,7 +1281,7 @@ export function TrainingView() {
                 </button>
               </div>
               <div className="voice-profile-list">
-                {state.voiceProfiles.map((profile) => (
+                {currentState.voiceProfiles.map((profile) => (
                   <article
                     className={
                       profile.id === selectedVoiceProfile?.id
@@ -1116,11 +1302,10 @@ export function TrainingView() {
                       <span>模块名称</span>
                       <input
                         defaultValue={profile.name}
-                        onBlur={(event) =>
-                          void updateVoiceProfile(profile.id, {
-                            name: event.target.value || "声音模块"
-                          })
-                        }
+                      onBlur={(event) => {
+                        const name = event.target.value.trim() || "声音模块";
+                        void updateVoiceProfile(profile.id, { name });
+                      }}
                       />
                     </label>
                     <label>
@@ -1129,7 +1314,10 @@ export function TrainingView() {
                         defaultValue={profile.engineType || "api"}
                         onChange={(event) =>
                           void updateVoiceProfile(profile.id, {
-                            engineType: event.target.value as "api" | "local"
+                            engineType: event.target.value as
+                              | "api"
+                              | "local"
+                              | "gpt-sovits"
                           })
                         }
                       >
@@ -1245,11 +1433,29 @@ export function TrainingView() {
                     </button>
                   </article>
                 ))}
-                {state.voiceProfiles.length === 0 && (
+                {currentState.voiceProfiles.length === 0 && (
                   <p className="empty-copy">还没有声音样本。</p>
                 )}
               </div>
               <div className="library-save-row">
+                <button
+                  className="library-save-button"
+                  type="button"
+                  disabled={!selectedVoiceProfile}
+                  onClick={async () => {
+                    if (!selectedVoiceProfile) return;
+                    await updateState({
+                      voiceProfiles: currentState.voiceProfiles.map((profile) =>
+                        profile.id === selectedVoiceProfile.id
+                          ? { ...profile }
+                          : profile
+                      )
+                    });
+                  }}
+                >
+                  <Save size={16} />
+                  保存到库
+                </button>
                 <button
                   className="library-save-button"
                   type="button"
@@ -1304,18 +1510,27 @@ export function TrainingView() {
                   </button>
                 </div>
                 <p>
-                  训练和对话会读取这份角色档案，并且把下面的 Skill / Prompt
-                  一起送入模型。
+                    角色 Skill 保持稳定；运行时 Prompt 会根据当前桌宠的状态变化。
+                    两者会按“角色 Skill 优先，状态只调整语气”的顺序一起送入模型。
                 </p>
                 <label className="module-skill-preview">
-                  <span>AI 模块会使用的角色 Skill / Prompt</span>
+                    <span>角色 Skill（稳定，不随状态变化）</span>
                   <textarea
                     readOnly
                     value={activeSkillPrompt}
                     rows={8}
                   />
                 </label>
+                  <label className="module-skill-preview">
+                    <span>运行时 Prompt（自动生成，不保存）</span>
+                    <textarea
+                      readOnly
+                      value={runtimePromptPreview}
+                      rows={6}
+                    />
+                  </label>
               </div>
+              {false && (
               <div className="service-config">
                 <div className="service-config-heading">
                   <div>
@@ -1361,6 +1576,110 @@ export function TrainingView() {
                   </button>
                 </div>
               </div>
+              )}
+              <section className="ai-model-selector">
+                <div className="ai-model-selector-heading">
+                  <div>
+                    <span className="section-kicker">本地对话模型</span>
+                    <strong>选择已经导入的 AI 模型</strong>
+                    <p>
+                      这里只读取“模型管理”中已经登记的模型，不会再次打开文件选择窗口。
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("models")}
+                  >
+                    <Package size={16} />
+                    打开模型管理
+                  </button>
+                </div>
+                {(() => {
+                  if (
+                    currentState.settings.services.llm.mode === "api"
+                  ) {
+                    return (
+                      <div className="ai-model-choice">
+                        <div>
+                          <strong>当前使用 API 模式</strong>
+                          <span>
+                            对话请求会发送到模型管理里配置的 API 服务，不需要选择本地模型。
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  const llmModels = currentState.localModels.filter(
+                    (model) =>
+                      model.kind === "llm" &&
+                      model.status === "ready" &&
+                      model.format !== "api"
+                  );
+                  const selectedModel = llmModels.find(
+                    (model) =>
+                      model.id ===
+                      (activeProfile?.localModelId ||
+                        currentState.localInference.llmModelId)
+                  );
+                  if (llmModels.length === 0) {
+                    return (
+                      <div className="ai-model-empty">
+                        <strong>还没有可用的 AI 模型</strong>
+                        <span>
+                          请先到“模型管理 → 对话模型”导入 Qwen、DeepSeek
+                          或其他已下载模型。
+                        </span>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="ai-model-choice">
+                      <label>
+                        <span>已导入模型</span>
+                        <select
+                          value={
+                            activeProfile?.localModelId ||
+                            currentState.localInference.llmModelId
+                          }
+                          onChange={(event) => {
+                            void saveProfilePatch({
+                              localModelId: event.target.value
+                            });
+                            void window.deskPet.voiceAgent.setModel(
+                              "llm",
+                              event.target.value
+                            );
+                          }}
+                        >
+                          <option value="">请选择对话模型</option>
+                          {llmModels.map((model) => (
+                            <option value={model.id} key={model.id}>
+                              {model.name}
+                              {model.parameterSize
+                                ? ` · ${model.parameterSize}`
+                                : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div>
+                        <strong>
+                          {selectedModel?.name || "尚未选择模型"}
+                        </strong>
+                        <span>
+                          {selectedModel
+                            ? `${selectedModel.family || "本地模型"} · ${
+                                selectedModel.format
+                              }`
+                            : "选择后会立即用于对话测试"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </section>
+
+              {false && (
               <div className="ai-training-placeholder">
                 <strong>AI 训练区</strong>
                 <span>
@@ -1451,6 +1770,8 @@ export function TrainingView() {
                   )}
                 </div>
               </div>
+              )}
+              {false && (
               <div className="voice-profile-list">
                 {(currentState.aiModules || []).map((module) => (
                   <article className="voice-profile" key={module.id}>
@@ -1488,29 +1809,67 @@ export function TrainingView() {
                   </p>
                 )}
               </div>
+              )}
               <div className="library-save-row">
+                <div className="save-delete-row">
+                  <button
+                    className="library-save-button"
+                    type="button"
+                    disabled={!activeProfile}
+                    onClick={async () => {
+                      if (!activeProfile) return;
+                      await saveProfilePatch({ status: "ready" });
+                    }}
+                  >
+                    <Save size={16} />
+                    保存到库
+                  </button>
+                  {activeProfile && (
+                    <button
+                      className="library-delete-button"
+                      type="button"
+                      title="删除 AI 模块"
+                      onClick={() => void deleteTrainingProfile()}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
                 <button
                   className="library-save-button"
                   type="button"
-                  disabled={!activeProfile}
                   onClick={async () => {
-                    if (!activeProfile) return;
-                    await saveProfilePatch({});
+                    const now = new Date().toISOString();
+                    const baseName = "新角色档案";
+                    const others = trainingProfiles.map((p) => p.name);
+                    const uniqueName = makeUniqueName(baseName, others);
+                    const nextProfile: TrainingProfile = {
+                      id: makeId("training"),
+                      name: uniqueName,
+                      petId: currentState.activePetId,
+                      status: "draft",
+                      localModelId: "",
+                      character: { ...currentState.character, name: "新角色" },
+                      documents: [],
+                      memories: [],
+                      voiceProfileIds: [],
+                      aiModuleIds: [],
+                      createdAt: now,
+                      updatedAt: now
+                    };
+                    await updateState({
+                      trainingProfiles: [nextProfile, ...trainingProfiles],
+                      activeTrainingProfileId: nextProfile.id,
+                      character: nextProfile.character,
+                      documents: [],
+                      memories: []
+                    });
+                    setProfileEditorOpen(true);
                   }}
                 >
-                  <Save size={16} />
-                  保存到库
+                  <Plus size={16} />
+                  创建角色档案
                 </button>
-                {activeProfile && (
-                  <button
-                    className="library-delete-button"
-                    type="button"
-                    title="删除 AI 模块"
-                    onClick={() => void deleteTrainingProfile()}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                )}
               </div>
             </div>
           )}

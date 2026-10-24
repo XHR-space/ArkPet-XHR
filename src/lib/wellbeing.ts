@@ -2,7 +2,22 @@ import { clamp } from "./format";
 import { makeId } from "./id";
 import type { CharacterProfile, WellbeingState } from "../types";
 
-export type ActivityMode = "walking" | "idle" | "sleeping" | "hidden";
+export const RELATIONSHIP_MAX = 200;
+
+// 精力越低，互动带来的好感收益越少；精力为 0 时完全不涨。
+export function relationshipGainFactor(energy: number) {
+  return clamp(Number(energy || 0) / 60, 0, 1);
+}
+
+// 好感越高，主动性越有底气，目标是角色基础主动性到更高的稳定值。
+export function initiativeTargetForRelationship(
+  character: CharacterProfile,
+  relationship: number
+) {
+  const base = Number(character.initiative ?? 58);
+  const affinity = clamp(Number(relationship || 0) / RELATIONSHIP_MAX, 0, 1);
+  return clamp(base * 0.8 + affinity * 30, 20, 100);
+}
 
 export function ensureWellbeing(
   value: Partial<WellbeingState> | undefined,
@@ -12,7 +27,13 @@ export function ensureWellbeing(
   return {
     energy: Number(value?.energy ?? character.energy ?? 76),
     initiative: Number(value?.initiative ?? character.initiative ?? 58),
-    relationship: Number(value?.relationship ?? character.relationship ?? 12),
+    relationship: clamp(
+      Number(value?.relationship ?? character.relationship ?? 12),
+      0,
+      RELATIONSHIP_MAX
+    ),
+    zeroEnergySince: value?.zeroEnergySince,
+    lastPhysicalInteractionAt: value?.lastPhysicalInteractionAt,
     mood: value?.mood || character.mood || "平静",
     moodScore: Number(value?.moodScore ?? 61),
     lastSimulatedAt: value?.lastSimulatedAt || now,
@@ -65,7 +86,7 @@ export function calculateMoodScore(
   return clamp(
     wellbeing.energy * 0.45 +
       wellbeing.initiative * 0.2 +
-      wellbeing.relationship * 0.25 +
+      (clamp(wellbeing.relationship, 0, RELATIONSHIP_MAX) / 2) * 0.25 +
       recentInteraction * 0.1,
     0,
     100
@@ -84,92 +105,13 @@ export function withUpdatedMood(
   };
 }
 
-export function simulateWellbeing(
-  previous: WellbeingState,
-  character: CharacterProfile,
-  mode: ActivityMode,
-  elapsedMs: number,
-  now = Date.now()
-): WellbeingState {
-  const safeElapsed = clamp(elapsedMs, 0, 2 * 60 * 1000);
-  const elapsedMinutes = safeElapsed / 60000;
-  if (elapsedMinutes <= 0) return previous;
-
-  const todayKey = dayKey(new Date(now));
-  const resetDaily = previous.todayKey !== todayKey;
-  let energy = Number(previous.energy ?? 76);
-  let initiative = Number(previous.initiative ?? character.initiative ?? 58);
-  let relationship = Number(previous.relationship ?? 12);
-  let energyDelta = resetDaily ? 0 : Number(previous.today.energyDelta || 0);
-  let initiativeDelta = resetDaily
-    ? 0
-    : Number(previous.today.initiativeDelta || 0);
-  let relationshipDelta = resetDaily
-    ? 0
-    : Number(previous.today.relationshipDelta || 0);
-
-  let energyChange = 0;
-  if (mode === "walking") energyChange = -0.2 * elapsedMinutes;
-  else if (mode === "idle") energyChange = -0.1 * elapsedMinutes;
-  else if (mode === "sleeping") energyChange = 0.67 * elapsedMinutes;
-
-  energy = clamp(energy + energyChange, 0, 100);
-  energyDelta += energy - Number(previous.energy ?? energy);
-
-  if (mode !== "sleeping") {
-    const relationshipChange = 0.2 * (elapsedMinutes / 60);
-    relationship = clamp(relationship + relationshipChange, 0, 100);
-    relationshipDelta += relationshipChange;
-  }
-
-  const lastInteractionAt = new Date(previous.lastInteractionAt).getTime();
-  const minutesSinceInteraction = Number.isFinite(lastInteractionAt)
-    ? Math.max(0, (now - lastInteractionAt) / 60000)
-    : 0;
-  if (minutesSinceInteraction > 15 && mode !== "sleeping") {
-    const floor = Math.max(20, Number(character.initiative ?? 58) - 15);
-    const before = initiative;
-    initiative = Math.max(
-      floor,
-      initiative - elapsedMinutes / 15
-    );
-    initiativeDelta += initiative - before;
-  } else if (mode === "sleeping") {
-    const base = Number(character.initiative ?? 58);
-    const before = initiative;
-    initiative += clamp(base - initiative, -0.2, 0.2) * elapsedMinutes;
-    initiativeDelta += initiative - before;
-  }
-
-  const next = withUpdatedMood(
-    {
-      ...previous,
-      energy,
-      initiative,
-      relationship,
-      todayKey,
-      today: {
-        ...previous.today,
-        energyDelta,
-        initiativeDelta,
-        relationshipDelta,
-        interactions: resetDaily ? 0 : previous.today.interactions,
-        petCount: resetDaily ? 0 : previous.today.petCount
-      },
-      lastSimulatedAt: new Date(now).toISOString()
-    },
-    now
-  );
-
-  return next;
-}
-
 export function recordWellbeingInteraction(
   previous: WellbeingState,
   character: CharacterProfile,
   kind: "chat" | "pet",
   now = Date.now()
 ): WellbeingState {
+  const gainFactor = relationshipGainFactor(previous.energy);
   const next = {
     ...previous,
     today: {
@@ -187,13 +129,18 @@ export function recordWellbeingInteraction(
   };
 
   if (kind === "chat") {
-    next.relationship = clamp(previous.relationship + 0.3, 0, 100);
+    const relationshipGain = 0.3 * gainFactor;
+    next.relationship = clamp(
+      previous.relationship + relationshipGain,
+      0,
+      RELATIONSHIP_MAX
+    );
     next.initiative = clamp(
       previous.initiative + 2,
       0,
       100
     );
-    next.today.relationshipDelta += 0.3;
+    next.today.relationshipDelta += relationshipGain;
     next.today.initiativeDelta += 2;
     next.lastInteractionAt = new Date(now).toISOString();
   } else {
@@ -201,15 +148,51 @@ export function recordWellbeingInteraction(
     const canPet =
       !Number.isFinite(lastPetAt) || now - lastPetAt >= 30 * 60 * 1000;
     if (canPet) {
-      next.relationship = clamp(previous.relationship + 0.2, 0, 100);
+      const relationshipGain = 0.2 * gainFactor;
+      next.relationship = clamp(
+        previous.relationship + relationshipGain,
+        0,
+        RELATIONSHIP_MAX
+      );
       next.initiative = clamp(previous.initiative + 1, 0, 100);
-      next.today.relationshipDelta += 0.2;
+      next.today.relationshipDelta += relationshipGain;
       next.today.initiativeDelta += 1;
       next.lastPetAt = new Date(now).toISOString();
       next.lastInteractionAt = new Date(now).toISOString();
     }
   }
 
+  return withUpdatedMood(next, now);
+}
+
+// 拖拽等身体互动：有精力时才涨好感，且每分钟最多结算一次。
+export function recordPhysicalInteraction(
+  previous: WellbeingState,
+  now = Date.now()
+) {
+  const gainFactor = relationshipGainFactor(previous.energy);
+  if (gainFactor <= 0) return previous;
+  const lastAt = new Date(previous.lastPhysicalInteractionAt || 0).getTime();
+  if (Number.isFinite(lastAt) && now - lastAt < 60 * 1000) return previous;
+  const relationshipGain = 0.08 * gainFactor;
+  const initiativeGain = 0.4 * gainFactor;
+  const next: WellbeingState = {
+    ...previous,
+    relationship: clamp(
+      previous.relationship + relationshipGain,
+      0,
+      RELATIONSHIP_MAX
+    ),
+    initiative: clamp(previous.initiative + initiativeGain, 0, 100),
+    lastPhysicalInteractionAt: new Date(now).toISOString(),
+    lastInteractionAt: new Date(now).toISOString(),
+    today: {
+      ...previous.today,
+      relationshipDelta:
+        previous.today.relationshipDelta + relationshipGain,
+      initiativeDelta: previous.today.initiativeDelta + initiativeGain
+    }
+  };
   return withUpdatedMood(next, now);
 }
 
