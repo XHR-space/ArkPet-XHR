@@ -39,7 +39,7 @@
     }
   },
   "createdAt": "2026-09-27T15:41:25.791Z",
-  "updatedAt": "2026-10-24T08:12:09.895Z",
+  "updatedAt": "2026-10-24T14:15:33.575Z",
   "actionBindings": {
     "idle": "Relax",
     "walk": "Move",
@@ -77,7 +77,7 @@
     "offsetY": 2
   },
   "hunger": 100,
-  "hungerUpdatedAt": "2026-10-24T08:12:24.807Z",
+  "hungerUpdatedAt": "2026-10-24T14:16:29.811Z",
   "desktopRenderConfig": {
     "displayWidth": 300,
     "displayHeight": 323,
@@ -99,9 +99,9 @@
     "secondsToday": 0,
     "secondsTotal": 0,
     "todayKey": "2026-10-24",
-    "lastSimulatedAt": "2026-10-24T08:12:24.807Z",
-    "lastInteractionAt": "2026-10-24T08:12:24.807Z",
-    "lastPetAt": "2026-10-24T08:12:24.807Z",
+    "lastSimulatedAt": "2026-10-24T14:16:29.811Z",
+    "lastInteractionAt": "2026-10-24T14:16:29.811Z",
+    "lastPetAt": "2026-10-24T14:16:29.811Z",
     "today": {
       "energyDelta": 0,
       "initiativeDelta": 0,

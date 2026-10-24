@@ -72,6 +72,7 @@ window.addEventListener("drop", (event) => {
 
 contextBridge.exposeInMainWorld("deskPet", {
   physicsDebug: process.env.ARKPET_PHYSICS_DEBUG === "1",
+  globalDragSupported: process.platform === "win32",
   debugPhysicsLog: (message) =>
     ipcRenderer.send("debug:physics-log", message),
   getState: () => ipcRenderer.invoke("store:get"),
@@ -92,6 +93,9 @@ contextBridge.exposeInMainWorld("deskPet", {
   setOverlayMouseIgnore: (ignore) => ipcRenderer.send("overlay:ignore-mouse", ignore),
   setOverlayFocusable: (focusable) =>
     ipcRenderer.send("overlay:set-focusable", focusable),
+  beginGlobalDrag: () => ipcRenderer.invoke("overlay:global-drag-start"),
+  endGlobalDrag: () => ipcRenderer.invoke("overlay:global-drag-end"),
+  onGlobalDrag: (callback) => subscribe("overlay:global-drag", callback),
 
   openAuxiliary: (auxiliaryId) => ipcRenderer.invoke("auxiliary:open", auxiliaryId),
   openChat: (mode, dialogModuleId) =>

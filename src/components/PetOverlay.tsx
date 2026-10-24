@@ -34,6 +34,8 @@ type EntitySnapshot = {
   y: number;
   width: number;
   height: number;
+  displayWidth: number;
+  displayHeight: number;
   hitboxOffsetX: number;
   hitboxOffsetY: number;
   vx: number;
@@ -75,6 +77,20 @@ type PhysicsState = EntitySnapshot & {
   fallbackRequested: boolean;
 };
 
+type DragSession = {
+  pointerId: number;
+  captureElement: HTMLDivElement;
+  globalMode: boolean;
+  localListenersAttached: boolean;
+  pointerMove: (event: PointerEvent) => void;
+  mouseMove: (event: MouseEvent) => void;
+  pointerUp: (event: PointerEvent) => void;
+  pointerCancel: (event: PointerEvent) => void;
+  pointerLeave: (event: PointerEvent) => void;
+};
+
+type DragMoveSource = "pointer" | "mouse" | "global";
+
 type DesktopIconRect = {
   id?: string;
   petId?: string;
@@ -105,6 +121,7 @@ type EntityProps = {
 
 const BASE_WIDTH = 104;
 const BASE_HEIGHT = 134;
+const DRAG_VISUAL_DELAY_MS = 340;
 
 function nextAutoTalkDelayMs(initiative: number) {
   const normalized = clamp(Number(initiative || 0), 0, 100) / 100;
@@ -123,6 +140,25 @@ function applyOverlayMouseIgnore(ignore: boolean) {
   window.deskPet.setOverlayMouseIgnore(ignore);
 }
 
+function getHitboxPosition(
+  entity: Pick<
+    EntitySnapshot,
+    "width" | "height" | "hitboxOffsetX" | "hitboxOffsetY"
+  >,
+  displayWidth: number,
+  displayHeight: number,
+  direction: 1 | -1
+) {
+  const horizontalOffset =
+    direction < 0 ? -entity.hitboxOffsetX : entity.hitboxOffsetX;
+  return {
+    left:
+      displayWidth / 2 - entity.width / 2 + horizontalOffset,
+    top:
+      displayHeight / 2 - entity.height / 2 + entity.hitboxOffsetY
+  };
+}
+
 function shouldIgnoreOverlayMouse(
   registry: Map<string, EntitySnapshot>,
   clientX: number,
@@ -135,11 +171,21 @@ function shouldIgnoreOverlayMouse(
     )
   );
   const hit = Array.from(registry.values()).some((entity) => {
+    const hitboxPosition = getHitboxPosition(
+      entity,
+      entity.displayWidth,
+      entity.displayHeight,
+      entity.direction
+    );
+    const hostLeft = entity.x - hitboxPosition.left;
+    const hitboxWorldLeft = hostLeft + hitboxPosition.left;
+    const hostTop = entity.y - hitboxPosition.top;
+    const hitboxWorldTop = hostTop + hitboxPosition.top;
     const inHitbox =
-      clientX >= entity.x + entity.hitboxOffsetX &&
-      clientX <= entity.x + entity.hitboxOffsetX + entity.width &&
-      clientY >= entity.y + entity.hitboxOffsetY &&
-      clientY <= entity.y + entity.hitboxOffsetY + entity.height;
+      clientX >= hitboxWorldLeft &&
+      clientX <= hitboxWorldLeft + entity.width &&
+      clientY >= hitboxWorldTop &&
+      clientY <= hitboxWorldTop + entity.height;
     const inMenu =
       entity.menu &&
       clientX >= entity.menu.x &&
@@ -527,6 +573,24 @@ function MultiPetEntity({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuCloseTimer = useRef<number | null>(null);
   const dragDistanceRef = useRef(0);
+  const dragVisualReadyAtRef = useRef(0);
+  const dragSessionRef = useRef<DragSession | null>(null);
+  const finishDragRef = useRef<(event?: PointerEvent) => void>(() => undefined);
+  const updateDragPositionRef = useRef<
+    (
+      clientX: number,
+      clientY: number,
+      buttons: number,
+      source: DragMoveSource
+    ) => void
+  >(() => undefined);
+  const lastDragMoveRef = useRef({
+    x: Number.NaN,
+    y: Number.NaN,
+    at: 0,
+    source: "pointer" as DragMoveSource
+  });
+  const syncDragPositionRef = useRef<() => void>(() => undefined);
   const [visualState, setVisualState] = useState<
     "idle" | "walk" | "fall" | "land" | "drag" | "sleep"
   >("idle");
@@ -597,7 +661,9 @@ function MultiPetEntity({
     height: -1,
     zIndex: -1,
     hitboxLeft: Number.NaN,
-    hitboxTop: Number.NaN
+    hitboxTop: Number.NaN,
+    hitboxWidth: Number.NaN,
+    hitboxHeight: Number.NaN
   });
   const voiceProfile = voiceProfiles.find(
     (profile) => profile.id === pet.modulePlugins?.voiceProfileId
@@ -711,6 +777,8 @@ function MultiPetEntity({
     const scale = (overlaySettings.scale || 1) * (pet.scale || 1);
     const width = (desktopRenderConfig?.hitboxWidth || BASE_WIDTH) * scale;
     const height = (desktopRenderConfig?.hitboxHeight || BASE_HEIGHT) * scale;
+  const displayWidth = (desktopRenderConfig?.displayWidth || 260) * scale;
+  const displayHeight = (desktopRenderConfig?.displayHeight || 320) * scale;
 
     useEffect(() => {
       if (!canAutoTalk) {
@@ -787,12 +855,6 @@ function MultiPetEntity({
   const visual = getVisualSize(desktopRenderConfig);
   const visualWidth = visual.visualWidth * scale;
   const visualHeight = visual.visualHeight * scale;
-  const canvasWidth =
-    Math.max(desktopRenderConfig?.displayWidth || 260, visual.visualWidth) *
-    scale;
-  const canvasHeight =
-    Math.max(desktopRenderConfig?.displayHeight || 320, visual.visualHeight) *
-    scale;
   const bounds = useMemo(
     () => ({
       left: metrics.workArea.x - metrics.bounds.x,
@@ -808,6 +870,8 @@ function MultiPetEntity({
     y: bounds.floor - height,
     width,
     height,
+    displayWidth,
+    displayHeight,
     hitboxOffsetX: (desktopRenderConfig?.hitboxOffsetX || 0) * scale,
     hitboxOffsetY: (desktopRenderConfig?.hitboxOffsetY || 0) * scale,
     vx: 0,
@@ -857,15 +921,29 @@ function MultiPetEntity({
     const styleCache = styleCacheRef.current;
     entity.width = width;
     entity.height = height;
+    entity.displayWidth = displayWidth;
+    entity.displayHeight = displayHeight;
+    entity.hitboxOffsetX =
+      (desktopRenderConfig?.hitboxOffsetX || 0) * scale;
+    entity.hitboxOffsetY =
+      (desktopRenderConfig?.hitboxOffsetY || 0) * scale;
+    const hitboxPosition = getHitboxPosition(
+      entity,
+      displayWidth,
+      displayHeight,
+      entity.direction
+    );
+    const hostLeft = entity.x - hitboxPosition.left;
+    const hostTop = entity.y - hitboxPosition.top;
     if (hostRef.current) {
-      hostRef.current.style.transform = `translate3d(${entity.x}px, ${entity.y}px, 0)`;
-      if (styleCache.width !== width) {
-        hostRef.current.style.width = `${width}px`;
-        styleCache.width = width;
+      hostRef.current.style.transform = `translate3d(${hostLeft}px, ${hostTop}px, 0)`;
+      if (styleCache.width !== displayWidth) {
+        hostRef.current.style.width = `${displayWidth}px`;
+        styleCache.width = displayWidth;
       }
-      if (styleCache.height !== height) {
-        hostRef.current.style.height = `${height}px`;
-        styleCache.height = height;
+      if (styleCache.height !== displayHeight) {
+        hostRef.current.style.height = `${displayHeight}px`;
+        styleCache.height = displayHeight;
       }
       if (styleCache.zIndex !== zIndex) {
         hostRef.current.style.zIndex = String(zIndex);
@@ -873,17 +951,21 @@ function MultiPetEntity({
       }
     }
     if (hitboxRef.current) {
-      entity.hitboxOffsetX =
-        (desktopRenderConfig?.hitboxOffsetX || 0) * scale;
-      entity.hitboxOffsetY =
-        (desktopRenderConfig?.hitboxOffsetY || 0) * scale;
-      if (styleCache.hitboxLeft !== entity.hitboxOffsetX) {
-        hitboxRef.current.style.left = `${entity.hitboxOffsetX}px`;
-        styleCache.hitboxLeft = entity.hitboxOffsetX;
+      if (styleCache.hitboxLeft !== hitboxPosition.left) {
+        hitboxRef.current.style.left = `${hitboxPosition.left}px`;
+        styleCache.hitboxLeft = hitboxPosition.left;
       }
-      if (styleCache.hitboxTop !== entity.hitboxOffsetY) {
-        hitboxRef.current.style.top = `${entity.hitboxOffsetY}px`;
-        styleCache.hitboxTop = entity.hitboxOffsetY;
+      if (styleCache.hitboxTop !== hitboxPosition.top) {
+        hitboxRef.current.style.top = `${hitboxPosition.top}px`;
+        styleCache.hitboxTop = hitboxPosition.top;
+      }
+      if (styleCache.hitboxWidth !== entity.width) {
+        hitboxRef.current.style.width = `${entity.width}px`;
+        styleCache.hitboxWidth = entity.width;
+      }
+      if (styleCache.hitboxHeight !== entity.height) {
+        hitboxRef.current.style.height = `${entity.height}px`;
+        styleCache.hitboxHeight = entity.height;
       }
     }
     if (menuRef.current && menuOpen) {
@@ -900,8 +982,8 @@ function MultiPetEntity({
         8,
         window.innerHeight - menuHeight - 8
       );
-      menuRef.current.style.left = `${x - entity.x}px`;
-      menuRef.current.style.top = `${y - entity.y}px`;
+      menuRef.current.style.left = `${x - hostLeft}px`;
+      menuRef.current.style.top = `${y - hostTop}px`;
       entity.menu = {
         x,
         y,
@@ -918,6 +1000,8 @@ function MultiPetEntity({
       registry.current.set(pet.id, { ...entity });
     }
   }
+
+  syncDragPositionRef.current = sync;
 
   function scheduleMenuClose() {
     if (menuCloseTimer.current !== null) {
@@ -1519,7 +1603,9 @@ function MultiPetEntity({
       const entity = physics.current;
 
       if (entity.dragging) {
-        setEntityVisual("drag");
+        if (now >= dragVisualReadyAtRef.current) {
+          setEntityVisual("drag");
+        }
       } else if (entity.restingUntil > now) {
         entity.vx = 0;
         entity.vy = 0;
@@ -1837,6 +1923,11 @@ function MultiPetEntity({
     bounds.floor,
     height,
     width,
+    displayWidth,
+    displayHeight,
+    scale,
+    desktopRenderConfig?.hitboxOffsetX,
+    desktopRenderConfig?.hitboxOffsetY,
     overlaySettings,
     canInteract,
     zIndex,
@@ -1847,30 +1938,34 @@ function MultiPetEntity({
     climbModule
   ]);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    function finishOnBlur() {
+      finishDragRef.current();
+    }
+    function finishWhenHidden() {
+      if (document.visibilityState === "hidden") {
+        finishDragRef.current();
+      }
+    }
+    window.addEventListener("blur", finishOnBlur);
+    document.addEventListener("visibilitychange", finishWhenHidden);
+    return () => {
+      window.removeEventListener("blur", finishOnBlur);
+      document.removeEventListener("visibilitychange", finishWhenHidden);
+      finishDragRef.current();
       registry.current.delete(pet.id);
-    },
-    [pet.id]
-  );
+    };
+  }, [pet.id, registry]);
 
   useEffect(() => {
-    function endStrayDrag() {
-      const entity = physics.current;
-      if (!entity.dragging) return;
-      entity.dragging = false;
-      entity.thrown = true;
-      setEntityVisual("fall");
-      applyOverlayMouseIgnore(true);
-    }
-    window.addEventListener("pointerup", endStrayDrag);
-    window.addEventListener("pointercancel", endStrayDrag);
-    window.addEventListener("blur", endStrayDrag);
-    return () => {
-      window.removeEventListener("pointerup", endStrayDrag);
-      window.removeEventListener("pointercancel", endStrayDrag);
-      window.removeEventListener("blur", endStrayDrag);
-    };
+    if (typeof window.deskPet.onGlobalDrag !== "function") return;
+    const unsubscribe = window.deskPet.onGlobalDrag(({ x, y, buttons }) => {
+      const session = dragSessionRef.current;
+      if (!session?.globalMode) return;
+      updateDragPositionRef.current(x, y, buttons, "global");
+      if (buttons === 0) finishDragRef.current();
+    });
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
@@ -2031,6 +2126,11 @@ function MultiPetEntity({
     bounds.floor,
     width,
     height,
+    displayWidth,
+    displayHeight,
+    scale,
+    desktopRenderConfig?.hitboxOffsetX,
+    desktopRenderConfig?.hitboxOffsetY,
     effectiveWalkSpeed
   ]);
 
@@ -2050,49 +2150,124 @@ function MultiPetEntity({
     return () => window.removeEventListener("pointerdown", handleOutsidePointer);
   }, [menuOpen]);
 
-  function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    const entity = physics.current;
-    dragDistanceRef.current = 0;
-    entity.dragging = true;
-    entity.dragOffsetX = event.clientX - entity.x;
-    entity.dragOffsetY = event.clientY - entity.y;
-    entity.lastPointerX = event.clientX;
-    entity.lastPointerY = event.clientY;
-    entity.lastPointerAt = performance.now();
-    entity.vx = 0;
-    entity.vy = 0;
-    entity.restingUntil = 0;
-    climbChainActiveRef.current = false;
-    climbChainStepsRef.current = 0;
-    climbChainHeightRef.current = 0;
-    climbApproachTargetIdRef.current = "";
-    event.currentTarget.setPointerCapture(event.pointerId);
-      overlayDragging = true;
+  function detachLocalDragListeners(session: DragSession) {
+    if (!session.localListenersAttached) return;
+    window.removeEventListener("pointermove", session.pointerMove, true);
+    window.removeEventListener("mousemove", session.mouseMove, true);
+    window.removeEventListener("pointerup", session.pointerUp, true);
+    window.removeEventListener("pointercancel", session.pointerCancel, true);
+    window.removeEventListener("pointerleave", session.pointerLeave, true);
+    session.localListenersAttached = false;
+    try {
+      if (session.captureElement.hasPointerCapture(session.pointerId)) {
+        session.captureElement.releasePointerCapture(session.pointerId);
+      }
+    } catch {
+      // The pointer may already be gone when the window loses focus.
+    }
   }
 
-  function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+  function attachLocalDragListeners(session: DragSession) {
+    if (session.globalMode || session.localListenersAttached) return;
+    window.addEventListener("pointermove", session.pointerMove, true);
+    window.addEventListener("mousemove", session.mouseMove, true);
+    window.addEventListener("pointerup", session.pointerUp, true);
+    window.addEventListener("pointercancel", session.pointerCancel, true);
+    window.addEventListener("pointerleave", session.pointerLeave, true);
+    session.localListenersAttached = true;
+    try {
+      if (!session.captureElement.hasPointerCapture(session.pointerId)) {
+        session.captureElement.setPointerCapture(session.pointerId);
+      }
+    } catch {
+      // Window listeners still keep the fallback drag path usable.
+    }
+  }
+
+  function clearDragSession() {
+    const session = dragSessionRef.current;
+    if (!session) return;
+    detachLocalDragListeners(session);
+    dragSessionRef.current = null;
+  }
+
+  function updateDragPosition(
+    clientX: number,
+    clientY: number,
+    buttons: number,
+    source: DragMoveSource
+  ) {
+    const session = dragSessionRef.current;
     const entity = physics.current;
-    if (!entity.dragging) return;
+    if (!session || !entity.dragging) {
+      if (session) finishDragRef.current();
+      return;
+    }
+    if (buttons === 0) {
+      finishDragRef.current();
+      return;
+    }
     const now = performance.now();
+    const lastMove = lastDragMoveRef.current;
+    if (clientX === lastMove.x && clientY === lastMove.y) {
+      lastMove.at = now;
+      lastMove.source = source;
+      return;
+    }
+    const dx = clientX - entity.lastPointerX;
+    const dy = clientY - entity.lastPointerY;
     const delta = Math.max(8, now - entity.lastPointerAt);
-    const dx = event.clientX - entity.lastPointerX;
-    const dy = event.clientY - entity.lastPointerY;
     dragDistanceRef.current += Math.hypot(dx, dy);
     entity.vx = (dx / delta) * 720;
     entity.vy = (dy / delta) * 720;
-    entity.x = event.clientX - entity.dragOffsetX;
-    entity.y = event.clientY - entity.dragOffsetY;
-    entity.lastPointerX = event.clientX;
-    entity.lastPointerY = event.clientY;
+    entity.x = clientX - entity.dragOffsetX;
+    entity.y = clientY - entity.dragOffsetY;
+    entity.lastPointerX = clientX;
+    entity.lastPointerY = clientY;
     entity.lastPointerAt = now;
-    sync();
+    lastDragMoveRef.current = { x: clientX, y: clientY, at: now, source };
+    syncDragPositionRef.current();
   }
 
-  function onPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+  updateDragPositionRef.current = updateDragPosition;
+
+  function finishDrag() {
+    const session = dragSessionRef.current;
     const entity = physics.current;
-    if (!entity.dragging) return;
-    entity.dragging = false;
+    if (!session && !entity.dragging) {
+      dragVisualReadyAtRef.current = 0;
+      lastDragMoveRef.current = {
+        x: Number.NaN,
+        y: Number.NaN,
+        at: 0,
+        source: "pointer"
+      };
       overlayDragging = false;
+      applyOverlayMouseIgnore(true);
+      return;
+    }
+    const usedGlobalDrag = Boolean(session?.globalMode);
+    clearDragSession();
+    if (
+      usedGlobalDrag &&
+      typeof window.deskPet.endGlobalDrag === "function"
+    ) {
+      void window.deskPet.endGlobalDrag().catch(() => undefined);
+    }
+    dragVisualReadyAtRef.current = 0;
+    lastDragMoveRef.current = {
+      x: Number.NaN,
+      y: Number.NaN,
+      at: 0,
+      source: "pointer"
+    };
+    overlayDragging = false;
+    applyOverlayMouseIgnore(true);
+    if (!entity.dragging) {
+      dragDistanceRef.current = 0;
+      return;
+    }
+    entity.dragging = false;
     const draggedDistance = dragDistanceRef.current;
     dragDistanceRef.current = 0;
     if (draggedDistance >= 8) onDragInteract();
@@ -2131,8 +2306,6 @@ function MultiPetEntity({
       entity.supportGraceUntil = performance.now() + 140;
       entity.thrown = false;
       setEntityVisual("land");
-      event.currentTarget.releasePointerCapture(event.pointerId);
-        applyOverlayMouseIgnore(true);
       return;
     }
     entity.vx = clamp(entity.vx, -1200, 1200);
@@ -2143,8 +2316,111 @@ function MultiPetEntity({
     entity.thrown = true;
     setEntityDirection(entity.direction);
     setEntityVisual("fall");
-    event.currentTarget.releasePointerCapture(event.pointerId);
-      applyOverlayMouseIgnore(true);
+  }
+
+  finishDragRef.current = finishDrag;
+
+  function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (dragSessionRef.current) finishDragRef.current();
+    const entity = physics.current;
+    const pointerId = event.pointerId;
+    dragDistanceRef.current = 0;
+    entity.dragging = true;
+    entity.dragOffsetX = event.clientX - entity.x;
+    entity.dragOffsetY = event.clientY - entity.y;
+    entity.lastPointerX = event.clientX;
+    entity.lastPointerY = event.clientY;
+    const startedAt = performance.now();
+    entity.lastPointerAt = startedAt;
+    entity.vx = 0;
+    entity.vy = 0;
+    entity.restingUntil = 0;
+    climbChainActiveRef.current = false;
+    climbChainStepsRef.current = 0;
+    climbChainHeightRef.current = 0;
+    climbApproachTargetIdRef.current = "";
+    dragVisualReadyAtRef.current = startedAt + DRAG_VISUAL_DELAY_MS;
+    lastDragMoveRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      at: startedAt,
+      source: "pointer"
+    };
+    overlayDragging = true;
+
+    const pointerMove = (nativeEvent: PointerEvent) => {
+      const session = dragSessionRef.current;
+      if (!session || session.pointerId !== pointerId) return;
+      updateDragPositionRef.current(
+        nativeEvent.clientX,
+        nativeEvent.clientY,
+        nativeEvent.buttons,
+        "pointer"
+      );
+    };
+    const mouseMove = (nativeEvent: MouseEvent) => {
+      const session = dragSessionRef.current;
+      if (!session || session.pointerId !== pointerId) return;
+      updateDragPositionRef.current(
+        nativeEvent.clientX,
+        nativeEvent.clientY,
+        nativeEvent.buttons,
+        "mouse"
+      );
+    };
+    const pointerUp = (nativeEvent: PointerEvent) => {
+      const session = dragSessionRef.current;
+      if (!session || session.pointerId !== pointerId) return;
+      finishDragRef.current(nativeEvent);
+    };
+    const pointerCancel = (nativeEvent: PointerEvent) => {
+      const session = dragSessionRef.current;
+      if (!session || session.pointerId !== pointerId) return;
+      finishDragRef.current(nativeEvent);
+    };
+    const pointerLeave = (nativeEvent: PointerEvent) => {
+      const session = dragSessionRef.current;
+      if (!session || session.pointerId !== pointerId) return;
+      finishDragRef.current(nativeEvent);
+    };
+    const session: DragSession = {
+      pointerId,
+      captureElement: event.currentTarget,
+      globalMode: false,
+      localListenersAttached: false,
+      pointerMove,
+      mouseMove,
+      pointerUp,
+      pointerCancel,
+      pointerLeave
+    };
+    dragSessionRef.current = session;
+    attachLocalDragListeners(session);
+
+    if (
+      window.deskPet.globalDragSupported &&
+      typeof window.deskPet.beginGlobalDrag === "function"
+    ) {
+      void window.deskPet
+        .beginGlobalDrag()
+        .then((result) => {
+          if (!result.ok || !result.ready) return;
+          const currentSession = dragSessionRef.current;
+          if (
+            currentSession !== session ||
+            !physics.current.dragging
+          ) {
+            if (typeof window.deskPet.endGlobalDrag === "function") {
+              void window.deskPet.endGlobalDrag().catch(() => undefined);
+            }
+            return;
+          }
+          detachLocalDragListeners(session);
+          session.globalMode = true;
+          applyOverlayMouseIgnore(true);
+        })
+        .catch(() => undefined);
+    }
   }
 
   function clearAutoReplyTimer() {
@@ -2583,12 +2859,13 @@ function MultiPetEntity({
             boneMap={pet.boneMap}
             fitWidth={visualWidth}
             fitHeight={visualHeight}
-            displayWidth={canvasWidth}
-            displayHeight={canvasHeight}
-            offsetX={desktopRenderConfig?.offsetX}
-            offsetY={desktopRenderConfig?.offsetY}
-            anchorBottom
-            normalizeBodySize
+            displayWidth={displayWidth}
+            displayHeight={displayHeight}
+            fitRatio={1}
+            offsetX={(desktopRenderConfig?.offsetX || 0) * scale}
+            offsetY={(desktopRenderConfig?.offsetY || 0) * scale}
+            anchorBottom={false}
+            normalizeBodySize={false}
             speedMultiplier={animationSpeed}
             className="multi-pet-spine"
             onAnimationData={(items) => {
@@ -2644,18 +2921,6 @@ function MultiPetEntity({
         className="multi-pet-hitbox"
         data-pet-id={pet.id}
         onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onLostPointerCapture={() => {
-          const entity = physics.current;
-          if (!entity.dragging) return;
-          entity.dragging = false;
-            overlayDragging = false;
-          entity.thrown = true;
-          setEntityVisual("fall");
-          applyOverlayMouseIgnore(true);
-        }}
         onDoubleClick={() => window.deskPet.showControl()}
         onContextMenu={(event) => {
           event.preventDefault();

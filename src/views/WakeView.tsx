@@ -270,6 +270,8 @@ export function WakeView({ petMode }: { petMode: PetMode }) {
                   state="walk"
                   fitRatio={0.72}
                   className="stage-spine-pet"
+                  maxFPS={30}
+                  deferMountMs={160}
                   actionBindings={item.actionBindings}
                   boneMap={item.boneMap}
                   fallback={

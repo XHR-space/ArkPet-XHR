@@ -42,6 +42,8 @@ type SpinePetProps = {
   anchorBottom?: boolean;
   normalizeBodySize?: boolean;
   speedMultiplier?: number;
+  maxFPS?: number;
+  deferMountMs?: number;
   actionBindings?: ActionBindings;
   actionOverride?: string;
   boneMap?: BoneRoleMap;
@@ -135,6 +137,8 @@ export function SpinePet({
   anchorBottom = false,
   normalizeBodySize = false,
   speedMultiplier = 0.82,
+  maxFPS,
+  deferMountMs = 0,
   actionBindings,
   actionOverride,
   boneMap,
@@ -171,6 +175,8 @@ export function SpinePet({
   useEffect(() => {
     let disposed = false;
     let application: Application | null = null;
+    let mountTimer: number | null = null;
+    let visibilityHandler: (() => void) | null = null;
     setFailed(false);
     setReady(false);
     fitProfileRef.current = null;
@@ -187,6 +193,19 @@ export function SpinePet({
           autoDensity: true,
           resolution: Math.min(2, window.devicePixelRatio || 1)
         });
+        if (maxFPS !== undefined) {
+          application.ticker.maxFPS = maxFPS;
+        }
+        visibilityHandler = () => {
+          if (!application) return;
+          if (document.visibilityState === "hidden") {
+            application.ticker.stop();
+          } else if (!application.ticker.started) {
+            application.ticker.start();
+          }
+        };
+        document.addEventListener("visibilitychange", visibilityHandler);
+        visibilityHandler();
         const canvas = application.view as unknown as HTMLCanvasElement;
         canvas.style.width = "100%";
         canvas.style.height = "100%";
@@ -336,9 +355,24 @@ export function SpinePet({
       }
     }
 
-    mount();
+    if (deferMountMs > 0) {
+      mountTimer = window.setTimeout(() => {
+        mountTimer = null;
+        void mount();
+      }, deferMountMs);
+    } else {
+      void mount();
+    }
     return () => {
       disposed = true;
+      if (mountTimer !== null) {
+        window.clearTimeout(mountTimer);
+        mountTimer = null;
+      }
+      if (visibilityHandler) {
+        document.removeEventListener("visibilitychange", visibilityHandler);
+        visibilityHandler = null;
+      }
       fitProfileRef.current = null;
       spineRef.current = null;
       availableAnimationsRef.current = [];
@@ -362,7 +396,9 @@ export function SpinePet({
     displayWidth,
     displayHeight,
     anchorBottom,
-    normalizeBodySize
+    normalizeBodySize,
+    maxFPS,
+    deferMountMs
   ]);
 
   useEffect(() => {

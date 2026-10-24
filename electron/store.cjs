@@ -4,6 +4,9 @@ const crypto = require("node:crypto");
 
 const STATE_FILE = "desk-pet-state.json";
 
+const SAVE_DELAY_MS = 100;
+const SAVE_RETRY_DELAY_MS = 1000;
+
 function id(prefix) {
   return `${prefix}_${crypto.randomUUID()}`;
 }
@@ -930,6 +933,11 @@ class Store {
     this.assetsPath = path.join(userDataPath, "assets");
     this.petStorePath = path.join(userDataPath, "pet-store");
     this.state = createDefaultState();
+    this.saveTimer = null;
+    this.flushInProgress = false;
+    this.dirty = false;
+    this.lastSavedStateContent = null;
+    this.petStoreCache = new Map();
   }
 
   load() {
@@ -941,12 +949,10 @@ class Store {
       if (fs.existsSync(this.filePath)) {
         const content = fs.readFileSync(this.filePath, "utf8");
         const parsed = JSON.parse(content);
-        const previousVersion = Number(parsed.version || 1);
         this.state = ensureShape(parsed);
-        if (this.state.version !== previousVersion) this.save();
+        this.lastSavedStateContent = content;
       } else {
         this.state = ensureShape(createDefaultState());
-        this.save();
       }
     } catch (error) {
       const brokenPath = `${this.filePath}.broken-${Date.now()}`;
@@ -962,54 +968,81 @@ class Store {
         text: `数据文件读取失败，已创建新状态。原文件保留在 ${brokenPath}`,
         createdAt: new Date().toISOString()
       });
-      this.save();
     }
 
     this.loadPetStore();
-    this.save();
+    this.flushSave();
     return this.state;
   }
 
   save() {
-    fs.mkdirSync(this.userDataPath, { recursive: true });
-    fs.mkdirSync(this.petStorePath, { recursive: true });
-    const content = JSON.stringify(this.state, null, 2);
-    let shouldWrite = true;
-    try {
-      if (fs.existsSync(this.filePath)) {
-        shouldWrite = fs.readFileSync(this.filePath, "utf8") !== content;
+    this.dirty = true;
+    this.scheduleSave();
+  }
+
+  scheduleSave(delay = SAVE_DELAY_MS) {
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      try {
+        this.flushSave();
+      } catch (error) {
+        console.error("[store] background save failed; retrying", error);
+        this.scheduleSave(SAVE_RETRY_DELAY_MS);
       }
-    } catch {
-      shouldWrite = true;
+    }, delay);
+    this.saveTimer.unref?.();
+  }
+
+  flushSave() {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
     }
-    if (shouldWrite) {
-      const tempPath = `${this.filePath}.tmp`;
-      fs.writeFileSync(tempPath, content, "utf8");
-      fs.renameSync(tempPath, this.filePath);
+    if (this.flushInProgress) return;
+    this.flushInProgress = true;
+
+    try {
+      fs.mkdirSync(this.userDataPath, { recursive: true });
+      fs.mkdirSync(this.petStorePath, { recursive: true });
+      const content = JSON.stringify(this.state, null, 2);
+      if (content !== this.lastSavedStateContent) {
+        const tempPath = `${this.filePath}.tmp`;
+        fs.writeFileSync(tempPath, content, "utf8");
+        fs.renameSync(tempPath, this.filePath);
+        this.lastSavedStateContent = content;
+      }
+      this.syncPetStore();
+      this.dirty = false;
+    } catch (error) {
+      this.dirty = true;
+      throw error;
+    } finally {
+      this.flushInProgress = false;
     }
-    this.syncPetStore();
   }
 
   syncPetStore() {
     fs.mkdirSync(this.petStorePath, { recursive: true });
     const currentIds = new Set(this.state.pets.map((pet) => pet.id));
     for (const pet of this.state.pets) {
-      const filePath = path.join(this.petStorePath, `${pet.id}.json`);
+      const entry = `${pet.id}.json`;
+      const filePath = path.join(this.petStorePath, entry);
       const content = JSON.stringify(pet, null, 2);
-      try {
-        if (fs.readFileSync(filePath, "utf8") === content) continue;
-      } catch {
-        // Missing or unreadable pet files are rewritten below.
+      if (this.petStoreCache.get(entry) === content && fs.existsSync(filePath)) {
+        continue;
       }
       const tempPath = `${filePath}.tmp`;
       fs.writeFileSync(tempPath, content, "utf8");
       fs.renameSync(tempPath, filePath);
+      this.petStoreCache.set(entry, content);
     }
     for (const entry of fs.readdirSync(this.petStorePath)) {
       if (!entry.endsWith(".json")) continue;
       const petId = entry.slice(0, -5);
       if (!currentIds.has(petId)) {
         fs.rmSync(path.join(this.petStorePath, entry), { force: true });
+        this.petStoreCache.delete(entry);
       }
     }
     return this.state.pets.length;
@@ -1021,9 +1054,12 @@ class Store {
     for (const entry of fs.readdirSync(this.petStorePath)) {
       if (!entry.endsWith(".json")) continue;
       try {
-        const pet = JSON.parse(
-          fs.readFileSync(path.join(this.petStorePath, entry), "utf8")
+        const content = fs.readFileSync(
+          path.join(this.petStorePath, entry),
+          "utf8"
         );
+        this.petStoreCache.set(entry, content);
+        const pet = JSON.parse(content);
         if (pet?.id && !knownIds.has(pet.id)) {
           this.state.pets.push(pet);
           knownIds.add(pet.id);

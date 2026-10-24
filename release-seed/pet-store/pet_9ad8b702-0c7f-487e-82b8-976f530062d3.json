@@ -17,7 +17,7 @@
     "sleep": ""
   },
   "createdAt": "2026-09-27T07:27:23.741Z",
-  "updatedAt": "2026-10-24T08:12:09.868Z",
+  "updatedAt": "2026-10-24T14:15:33.569Z",
   "spine": {
     "skelUrl": "deskpet://assets/spine/shu-temp-preview/build_char_2025_shu_nian_11.skel",
     "atlasUrl": "deskpet://assets/spine/shu-temp-preview/build_char_2025_shu_nian_11.atlas",
@@ -80,7 +80,7 @@
     "offsetY": 2
   },
   "hunger": 100,
-  "hungerUpdatedAt": "2026-10-24T08:12:24.807Z",
+  "hungerUpdatedAt": "2026-10-24T14:16:29.811Z",
   "desktopRenderConfig": {
     "displayWidth": 900,
     "displayHeight": 760,
@@ -107,9 +107,9 @@
     "secondsToday": 0,
     "secondsTotal": 0,
     "todayKey": "2026-10-24",
-    "lastSimulatedAt": "2026-10-24T08:12:24.807Z",
-    "lastInteractionAt": "2026-10-24T08:12:24.807Z",
-    "lastPetAt": "2026-10-24T08:12:24.807Z",
+    "lastSimulatedAt": "2026-10-24T14:16:29.811Z",
+    "lastInteractionAt": "2026-10-24T14:16:29.811Z",
+    "lastPetAt": "2026-10-24T14:16:29.811Z",
     "today": {
       "energyDelta": 0,
       "initiativeDelta": 0,

@@ -3,7 +3,7 @@
   "name": "攀爬平台模组",
   "version": "1.0.0",
   "apiVersion": 1,
-  "author": "XHR-cpu23",
+  "author": "XHR-space",
   "description": "在重力状态下自动寻找桌面落脚点并攀爬。",
   "type": "interaction",
   "scope": "pet",

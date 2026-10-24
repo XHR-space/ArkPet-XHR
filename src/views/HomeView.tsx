@@ -134,6 +134,8 @@ function PetHero({
             skelUrl={pet.spine.skelUrl}
             state="idle"
             className="hero-spine-pet"
+            maxFPS={30}
+            deferMountMs={160}
             fallback={
               <PetAvatar
                 primary={pet.accent}

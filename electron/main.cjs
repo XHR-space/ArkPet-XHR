@@ -15,6 +15,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const crypto = require("node:crypto");
+const readline = require("node:readline");
 const { execFile, spawn, spawnSync } = require("node:child_process");
 const sharp = require("sharp");
 const { pathToFileURL } = require("node:url");
@@ -114,8 +115,8 @@ function resolveUserDataPath() {
   return fallback;
 }
 
-const UPDATE_REPOSITORY = "XHR-cpu123/ArkPet-XHR";
-const MODULE_REGISTRY_REPOSITORY = "XHR-cpu123/ArkPet-XHR";
+const UPDATE_REPOSITORY = "XHR-space/ArkPet-XHR";
+const MODULE_REGISTRY_REPOSITORY = "XHR-space/ArkPet-XHR";
 const MODULE_REGISTRY_BRANCH = "main";
 const MODULE_REGISTRY_URL = `https://raw.githubusercontent.com/${MODULE_REGISTRY_REPOSITORY}/${MODULE_REGISTRY_BRANCH}/module-registry/registry.json`;
 const LOCAL_MODULE_REGISTRY_ROOT = path.join(__dirname, "..", "module-registry");
@@ -394,6 +395,10 @@ let store;
 let controlWindow = null;
 let overlayWindow = null;
 let isQuitting = false;
+let mouseDragHelper = null;
+let mouseDragHelperRestartTimer = null;
+let mouseDragHelperReady = false;
+let mouseDragActive = false;
 const auxiliaryWindows = new Map();
 const chatWindows = new Map();
 const externalModuleWindows = new Map();
@@ -403,6 +408,113 @@ const VOICE_SERVICE_URL = "http://127.0.0.1:9880";
 const VOICE_ENGINE_DOWNLOAD_URL =
   "https://hf-mirror.com/lj1995/GPT-SoVITS-windows-package/resolve/main/GPT-SoVITS-v3lora-20250228.7z?download=true";
 const VOICE_ENGINE_FOLDER_NAME = "GPT-SoVITS-v3lora-20250228";
+
+function sendGlobalDrag(payload) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  if (overlayWindow.webContents.isDestroyed()) return;
+  overlayWindow.webContents.send("overlay:global-drag", payload);
+}
+
+function scheduleMouseDragHelperRestart() {
+  if (process.platform !== "win32" || isQuitting || !app.isReady()) return;
+  if (mouseDragHelperRestartTimer) clearTimeout(mouseDragHelperRestartTimer);
+  mouseDragHelperRestartTimer = setTimeout(() => {
+    mouseDragHelperRestartTimer = null;
+    startMouseDragHelper();
+  }, 1000);
+}
+
+function handleMouseDragHelperLine(line) {
+  const value = String(line || "").trim();
+  if (!["UP", "0", "DOWN", "1"].includes(value)) return;
+  mouseDragHelperReady = true;
+
+  if (value === "UP" || value === "0") {
+    if (!mouseDragActive) return;
+    mouseDragActive = false;
+    sendGlobalDrag({ buttons: 0 });
+    return;
+  }
+
+  if ((value === "DOWN" || value === "1") && mouseDragActive) {
+    if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    const point = screen.getCursorScreenPoint();
+    sendGlobalDrag({ x: point.x, y: point.y, buttons: 1 });
+  }
+}
+
+function startMouseDragHelper() {
+  if (process.platform !== "win32" || isQuitting || !app.isReady()) return null;
+  if (
+    mouseDragHelper &&
+    !mouseDragHelper.killed &&
+    mouseDragHelper.exitCode === null
+  ) {
+    return mouseDragHelper;
+  }
+
+  mouseDragHelperReady = false;
+  const helperPath = path.join(
+    __dirname,
+    "..",
+    "scripts",
+    "mouse-drag-helper.ps1"
+  );
+  const child = spawn(
+    "powershell.exe",
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      helperPath,
+      "-ParentPid",
+      String(process.pid)
+    ],
+    {
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"]
+    }
+  );
+  mouseDragHelper = child;
+
+  const output = readline.createInterface({ input: child.stdout });
+  output.on("line", handleMouseDragHelperLine);
+  child.stderr.on("data", () => {
+    // Keep the pipe drained. Restart handling below reports persistent failures.
+  });
+  child.on("error", () => {
+    mouseDragHelperReady = false;
+    scheduleMouseDragHelperRestart();
+  });
+  child.on("exit", () => {
+    output.close();
+    if (mouseDragHelper !== child) return;
+    mouseDragHelper = null;
+    mouseDragHelperReady = false;
+    scheduleMouseDragHelperRestart();
+  });
+  return child;
+}
+
+function stopMouseDragHelper() {
+  if (mouseDragHelperRestartTimer) {
+    clearTimeout(mouseDragHelperRestartTimer);
+    mouseDragHelperRestartTimer = null;
+  }
+  const child = mouseDragHelper;
+  mouseDragHelper = null;
+  mouseDragHelperReady = false;
+  if (child && !child.killed) {
+    try {
+      child.kill();
+    } catch {
+      // The helper may already have exited.
+    }
+  }
+}
 
 function voiceEngineConfigFile() {
   return path.join(app.getPath("userData"), "voice-engine-config.json");
@@ -968,7 +1080,7 @@ function createControlWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      backgroundThrottling: false,
+      backgroundThrottling: true,
       sandbox: false
     }
   });
@@ -2904,8 +3016,34 @@ function registerIpc() {
 
   ipcMain.on("overlay:ignore-mouse", (_event, ignore) => {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
-      overlayWindow.setIgnoreMouseEvents(Boolean(ignore), { forward: true });
+      const shouldIgnore =
+        (process.platform === "win32" && mouseDragActive) || Boolean(ignore);
+      overlayWindow.setIgnoreMouseEvents(shouldIgnore, { forward: true });
     }
+  });
+  ipcMain.handle("overlay:global-drag-start", () => {
+    mouseDragActive = false;
+    const helper = startMouseDragHelper();
+    const ready = Boolean(
+      helper && mouseDragHelperReady && helper.exitCode === null && !helper.killed
+    );
+    if (ready) {
+      mouseDragActive = true;
+      if (overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+      }
+    }
+    return {
+      ok: true,
+      ready
+    };
+  });
+  ipcMain.handle("overlay:global-drag-end", () => {
+    mouseDragActive = false;
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+    }
+    return { ok: true, ready: Boolean(mouseDragHelper && mouseDragHelperReady) };
   });
   ipcMain.on("overlay:set-focusable", (_event, focusable) => {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
@@ -4413,6 +4551,7 @@ ipcMain.handle("ttsInstallStatus", () => {
       properties: ["openDirectory", "createDirectory"]
     });
     if (result.canceled) return { canceled: true };
+    store.flushSave();
     const folder = path.join(
       result.filePaths[0],
       `desk-pet-backup-${new Date().toISOString().slice(0, 10)}`
@@ -4454,6 +4593,7 @@ ipcMain.handle("ttsInstallStatus", () => {
         });
       }
       const state = store.replace(parsed);
+      store.flushSave();
       broadcastState();
       applyOverlaySettings();
       return { canceled: false, ok: true, state };
@@ -4554,6 +4694,7 @@ if (!singleInstance) {
     // 本地模型不随启动加载：首次真正用到时再载入，空闲 10 分钟后自动释放，避免常驻内存。
     await registerAssetProtocol();
     registerIpc();
+    startMouseDragHelper();
     createControlWindow();
     createOverlayWindow();
 
@@ -4585,6 +4726,15 @@ if (!singleInstance) {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  stopMouseDragHelper();
+  mouseDragActive = false;
+  if (store) {
+    try {
+      store.flushSave();
+    } catch (error) {
+      console.error("[store] final save failed", error);
+    }
+  }
   if (updateRuntime.status === "ready") {
     launchDownloadedUpdate();
   }

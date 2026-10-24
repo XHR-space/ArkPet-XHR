@@ -843,7 +843,9 @@ export function WorkshopView() {
             <SpinePet
               skelUrl={pet.spine.skelUrl}
               state="idle"
-                fitRatio={showAdvanced ? 1 : 0.6}
+              fitRatio={showAdvanced ? 1 : 0.6}
+              maxFPS={30}
+              deferMountMs={160}
               fitWidth={
                 showAdvanced
                   ? advancedVisualWidth
@@ -867,7 +869,7 @@ export function WorkshopView() {
                   : activeRenderConfig.offsetY
               }
               anchorBottom={false}
-                normalizeBodySize={false}
+              normalizeBodySize={false}
               className="workshop-spine-pet"
               onAnimations={saveSpineAnimations}
               onSkeletonInfo={saveSkeletonInfo}

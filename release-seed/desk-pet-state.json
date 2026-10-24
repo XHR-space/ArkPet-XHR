@@ -25,7 +25,7 @@
         "sleep": ""
       },
       "createdAt": "2026-09-27T07:27:23.741Z",
-      "updatedAt": "2026-10-24T08:12:09.868Z",
+      "updatedAt": "2026-10-24T14:15:33.569Z",
       "spine": {
         "skelUrl": "deskpet://assets/spine/shu-temp-preview/build_char_2025_shu_nian_11.skel",
         "atlasUrl": "deskpet://assets/spine/shu-temp-preview/build_char_2025_shu_nian_11.atlas",
@@ -88,7 +88,7 @@
         "offsetY": 2
       },
       "hunger": 100,
-      "hungerUpdatedAt": "2026-10-24T08:12:24.807Z",
+      "hungerUpdatedAt": "2026-10-24T14:16:29.811Z",
       "desktopRenderConfig": {
         "displayWidth": 900,
         "displayHeight": 760,
@@ -115,9 +115,9 @@
         "secondsToday": 0,
         "secondsTotal": 0,
         "todayKey": "2026-10-24",
-        "lastSimulatedAt": "2026-10-24T08:12:24.807Z",
-        "lastInteractionAt": "2026-10-24T08:12:24.807Z",
-        "lastPetAt": "2026-10-24T08:12:24.807Z",
+        "lastSimulatedAt": "2026-10-24T14:16:29.811Z",
+        "lastInteractionAt": "2026-10-24T14:16:29.811Z",
+        "lastPetAt": "2026-10-24T14:16:29.811Z",
         "today": {
           "energyDelta": 0,
           "initiativeDelta": 0,
@@ -178,7 +178,7 @@
         }
       },
       "createdAt": "2026-09-27T15:41:25.791Z",
-      "updatedAt": "2026-10-24T08:12:09.895Z",
+      "updatedAt": "2026-10-24T14:15:33.575Z",
       "actionBindings": {
         "idle": "Relax",
         "walk": "Move",
@@ -216,7 +216,7 @@
         "offsetY": 2
       },
       "hunger": 100,
-      "hungerUpdatedAt": "2026-10-24T08:12:24.807Z",
+      "hungerUpdatedAt": "2026-10-24T14:16:29.811Z",
       "desktopRenderConfig": {
         "displayWidth": 300,
         "displayHeight": 323,
@@ -238,9 +238,9 @@
         "secondsToday": 0,
         "secondsTotal": 0,
         "todayKey": "2026-10-24",
-        "lastSimulatedAt": "2026-10-24T08:12:24.807Z",
-        "lastInteractionAt": "2026-10-24T08:12:24.807Z",
-        "lastPetAt": "2026-10-24T08:12:24.807Z",
+        "lastSimulatedAt": "2026-10-24T14:16:29.811Z",
+        "lastInteractionAt": "2026-10-24T14:16:29.811Z",
+        "lastPetAt": "2026-10-24T14:16:29.811Z",
         "today": {
           "energyDelta": 0,
           "initiativeDelta": 0,
@@ -338,14 +338,14 @@
         "visualWidth": 104,
         "visualHeight": 134,
         "hitboxWidth": 78,
-        "hitboxHeight": 104,
+        "hitboxHeight": 107,
         "hitboxOffsetX": 18,
-        "hitboxOffsetY": 4,
-        "offsetX": 0,
-        "offsetY": 0
+        "hitboxOffsetY": 1,
+        "offsetX": -2,
+        "offsetY": -9
       },
       "createdAt": "2026-10-24T05:52:48.551Z",
-      "updatedAt": "2026-10-24T08:12:10.258Z",
+      "updatedAt": "2026-10-24T14:15:33.677Z",
       "vitals": {
         "energy": 76,
         "initiative": 58,
@@ -355,9 +355,9 @@
         "secondsToday": 0,
         "secondsTotal": 0,
         "todayKey": "2026-10-24",
-        "lastSimulatedAt": "2026-10-24T08:12:24.807Z",
-        "lastInteractionAt": "2026-10-24T08:12:24.807Z",
-        "lastPetAt": "2026-10-24T08:12:24.807Z",
+        "lastSimulatedAt": "2026-10-24T14:16:29.811Z",
+        "lastInteractionAt": "2026-10-24T14:16:29.811Z",
+        "lastPetAt": "2026-10-24T14:16:29.811Z",
         "today": {
           "energyDelta": 0,
           "initiativeDelta": 0,
@@ -380,14 +380,14 @@
         "visualWidth": 104,
         "visualHeight": 134,
         "hitboxWidth": 78,
-        "hitboxHeight": 104,
+        "hitboxHeight": 107,
         "hitboxOffsetX": 18,
-        "hitboxOffsetY": 4,
-        "offsetX": 0,
-        "offsetY": 0
+        "hitboxOffsetY": 1,
+        "offsetX": -2,
+        "offsetY": -9
       },
       "hunger": 100,
-      "hungerUpdatedAt": "2026-10-24T08:12:24.807Z",
+      "hungerUpdatedAt": "2026-10-24T14:16:29.811Z",
       "autoTextEnabled": true,
       "autoVoiceEnabled": true,
       "modulePlugins": {
@@ -681,6 +681,6 @@
     "wakeCount": 0,
     "releaseCount": 0,
     "chatCount": 0,
-    "createdAt": "2026-10-24T08:12:24.807Z"
+    "createdAt": "2026-10-24T14:16:29.810Z"
   }
 }

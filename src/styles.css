@@ -524,3 +524,9 @@
   background: #f0f6ff;
 }
 
+.multi-pet-hitbox {
+  position: absolute;
+  inset: auto;
+  pointer-events: auto;
+}
+

@@ -664,6 +664,9 @@ export type DeskPetApi = {
   overlayCommand: (command: OverlayCommand) => Promise<AppState>;
   hideOverlay: () => Promise<boolean>;
   setOverlayMouseIgnore: (ignore: boolean) => void;
+  globalDragSupported: boolean;
+  beginGlobalDrag: () => Promise<{ ok: boolean; ready: boolean }>;
+  endGlobalDrag: () => Promise<{ ok: boolean }>;
   setOverlayFocusable: (focusable: boolean) => void;
   openAuxiliary: (id: string) => Promise<boolean>;
   openChat: (
@@ -928,6 +931,9 @@ export type DeskPetApi = {
     state?: AppState;
   }>;
   onStateChanged: (callback: (state: AppState) => void) => () => void;
+  onGlobalDrag: (
+    callback: (payload: { x: number; y: number; buttons: number }) => void
+  ) => () => void;
   onOverlayCommand: (callback: (command: OverlayCommand) => void) => () => void;
   onOverlayMode: (callback: (mode: OverlayCommand["type"]) => void) => () => void;
   onOverlaySettings: (

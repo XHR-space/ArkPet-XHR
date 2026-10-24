@@ -3,7 +3,7 @@ import path from "node:path";
 import "./make-release-seed.mjs";
 
 const token = process.env.GH_TOKEN || "";
-const owner = "XHR-cpu123";
+const owner = "XHR-space";
 const repo = "ArkPet-XHR";
 const apiBase = "https://api.github.com";
 
