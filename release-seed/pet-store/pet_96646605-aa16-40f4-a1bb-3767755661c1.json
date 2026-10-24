@@ -1,0 +1,239 @@
+{
+  "id": "pet_96646605-aa16-40f4-a1bb-3767755661c1",
+  "name": "夕-青玉砚",
+  "title": "Spine 3.8 角色",
+  "description": "由 .skel、.atlas 和纹理页创建的新桌宠。",
+  "accent": "#2f7df6",
+  "secondary": "#f59f38",
+  "scale": 1.15,
+  "greeting": "我在这里。",
+  "assets": [],
+  "animationMap": {
+    "idle": "",
+    "walk": "",
+    "fall": "",
+    "land": "",
+    "drag": "",
+    "sleep": ""
+  },
+  "spine": {
+    "skelUrl": "deskpet://assets/spine/build_char_2015_dusk_nian_12-1790599428324/build_char_2015_dusk_nian_12.skel",
+    "atlasUrl": "deskpet://assets/spine/build_char_2015_dusk_nian_12-1790599428324/build_char_2015_dusk_nian_12.atlas",
+    "textureUrl": "deskpet://assets/spine/build_char_2015_dusk_nian_12-1790599428324/build_char_2015_dusk_nian_12.png",
+    "folder": "build_char_2015_dusk_nian_12-1790599428324",
+    "animations": [
+      "Default",
+      "Interact",
+      "Move",
+      "Relax",
+      "Sit",
+      "Sleep",
+      "Special"
+    ],
+    "animationDurations": {
+      "Default": 0,
+      "Interact": 8.166666984558105,
+      "Move": 4,
+      "Relax": 8,
+      "Sit": 8,
+      "Sleep": 2.6666667461395264,
+      "Special": 39.33333206176758
+    }
+  },
+  "boneMap": {
+    "root": "root",
+    "chest": "F_Chest_I",
+    "head": "F_Head_I"
+  },
+  "actionBindings": {
+    "idle": "Special",
+    "walk": "Move",
+    "fall": "Special",
+    "land": "Relax",
+    "drag": "Interact",
+    "sleep": "Sleep"
+  },
+  "renderConfig": {
+    "displayWidth": 260,
+    "displayHeight": 320,
+    "visualWidth": 104,
+    "visualHeight": 134,
+    "hitboxWidth": 48,
+    "hitboxHeight": 75,
+    "hitboxOffsetX": 4,
+    "hitboxOffsetY": 7,
+    "offsetX": -10,
+    "offsetY": 23
+  },
+  "createdAt": "2026-09-28T12:43:48.646Z",
+  "updatedAt": "2026-10-16T03:03:28.929Z",
+  "modulePlugins": {
+    "boundModuleIds": []
+  },
+  "hunger": 0,
+  "hungerUpdatedAt": "2026-10-03T11:10:06.989Z",
+  "desktopRelationship": 17.040001777777768,
+  "desktopSecondsToday": 0,
+  "desktopSecondsTotal": 11340.003999999997,
+  "desktopDayKey": "2026-10-16",
+  "desktopSampleAt": "2026-10-16T01:18:12.696Z",
+  "desktopRenderConfig": {
+    "displayWidth": 260,
+    "displayHeight": 320,
+    "visualWidth": 104,
+    "visualHeight": 134,
+    "hitboxWidth": 48,
+    "hitboxHeight": 75,
+    "hitboxOffsetX": 4,
+    "hitboxOffsetY": 7,
+    "offsetX": -10,
+    "offsetY": 23
+  },
+  "vitals": {
+    "energy": 89.70306483333364,
+    "initiative": 58,
+    "relationship": 17.040001777777768,
+    "mood": "平静",
+    "moodScore": 56.226379619444586,
+    "secondsToday": 0,
+    "secondsTotal": 11340.003999999997,
+    "todayKey": "2026-10-16",
+    "lastSimulatedAt": "2026-10-16T03:03:28.904Z",
+    "lastInteractionAt": "2026-10-04T04:13:08.158Z",
+    "lastPetAt": "2026-10-04T04:13:08.158Z",
+    "today": {
+      "energyDelta": 69.97475533333346,
+      "initiativeDelta": -20,
+      "relationshipDelta": 0,
+      "interactions": 0,
+      "petCount": 0
+    },
+    "recentEvents": [
+      {
+        "id": "wellbeing_64f568b9-680c-47ee-b1cf-ef7bb266d716",
+        "type": "pet",
+        "text": "你摸了摸它，心情和主动性有小幅提升。",
+        "createdAt": "2026-10-04T04:13:08.158Z"
+      },
+      {
+        "id": "wellbeing_5fd24bea-918f-4daf-8908-e1f89ea16b97",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T14:52:01.875Z"
+      },
+      {
+        "id": "wellbeing_e6d29a8a-ee7d-4f2f-a916-a15b89f6fe61",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T14:03:47.109Z"
+      },
+      {
+        "id": "wellbeing_53cb4086-d729-4a1b-80ca-86bab7467200",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T14:01:19.617Z"
+      },
+      {
+        "id": "wellbeing_6978d1e6-5dc8-4ef0-a610-a8821effb785",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T13:58:12.942Z"
+      },
+      {
+        "id": "wellbeing_b26d7551-9297-46ff-83b9-a81898786e7a",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T13:45:19.366Z"
+      },
+      {
+        "id": "wellbeing_a6c38964-282d-4452-809a-8c8f2fec6177",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T13:34:34.768Z"
+      },
+      {
+        "id": "wellbeing_c4d51bf5-4d8f-4b9f-9a97-60cf48f1807c",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T13:31:38.838Z"
+      },
+      {
+        "id": "wellbeing_cdb4a090-8cc9-4232-a32a-df48d69273a9",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T13:30:05.136Z"
+      },
+      {
+        "id": "wellbeing_96f73a78-b5d0-4ff3-92df-4b42f2925aaa",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T13:29:15.682Z"
+      },
+      {
+        "id": "wellbeing_fdca074c-15aa-4913-bbd0-c08008a1f837",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T13:28:33.539Z"
+      },
+      {
+        "id": "wellbeing_08919089-2d9d-4e7d-a232-54433606602a",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T12:29:54.121Z"
+      },
+      {
+        "id": "wellbeing_b67fe443-cece-4730-9230-a9a230cdf1fa",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T12:28:55.634Z"
+      },
+      {
+        "id": "wellbeing_5579c635-5830-4085-9d95-c54a1009bb27",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T12:28:28.933Z"
+      },
+      {
+        "id": "wellbeing_0aa90aed-fce5-4197-a700-ec85950a2f8e",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T08:50:23.740Z"
+      },
+      {
+        "id": "wellbeing_b8e484b8-fbb1-434f-84b3-73eccde35d67",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T08:25:20.669Z"
+      },
+      {
+        "id": "wellbeing_1d042816-1af7-4318-b6c9-b4cd25968e86",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T08:08:06.815Z"
+      },
+      {
+        "id": "wellbeing_ad39d6e7-457a-4dbe-b68c-026257dd4ee6",
+        "type": "chat",
+        "text": "完成了一次角色对话，关系与主动性有所提升。",
+        "createdAt": "2026-09-30T06:40:55.693Z"
+      },
+      {
+        "id": "wellbeing_c4ee2202-16b6-45bb-9d53-14d1e599074a",
+        "type": "energy",
+        "text": "精力偏低，开始更容易想休息。",
+        "createdAt": "2026-09-28T08:04:32.953Z"
+      }
+    ]
+  },
+  "moduleState": {
+    "builtin-hunger-food": {
+      "hunger": 0
+    }
+  },
+  "voiceLines": {
+    "enabled": true,
+    "intervalSeconds": 60,
+    "probability": 60,
+    "clips": []
+  }
+}
