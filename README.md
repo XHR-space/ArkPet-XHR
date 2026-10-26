@@ -2,6 +2,11 @@
 
 一个只在本机运行的 Windows 桌宠应用。管理台使用本地网页技术，桌宠本体使用 Electron 透明置顶窗口。
 
+## 使用说明 / User Guides
+
+- [中文完整使用说明](docs/User-Guide.zh-CN.md)
+- [English User Guide](docs/User-Guide.en-US.md)
+
 ## ArkPet 2.1.0
 
 - 首页总览
