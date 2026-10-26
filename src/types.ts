@@ -603,6 +603,41 @@ export type VoiceAgentTurnResult = {
   error?: string;
 };
 
+export type PetInteractionRegion = {
+  petId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  visible: boolean;
+};
+
+export type PetInputPayload = {
+  petId: string;
+  type:
+    | "down"
+    | "move"
+    | "up"
+    | "cancel"
+    | "contextmenu"
+    | "dblclick"
+    | "pointerdown"
+    | "pointermove"
+    | "pointerup"
+    | "pointercancel";
+  x: number;
+  y: number;
+  button?: number;
+  buttons?: number;
+};
+
+export type PetChatAnchor = Omit<PetInteractionRegion, "visible">;
+
+export type PetChatState = {
+  petId: string;
+  open: boolean;
+};
+
 export type DeskPetApi = {
   physicsDebug: boolean;
   debugPhysicsLog: (message: string) => void;
@@ -667,12 +702,21 @@ export type DeskPetApi = {
   globalDragSupported: boolean;
   beginGlobalDrag: () => Promise<{ ok: boolean; ready: boolean }>;
   endGlobalDrag: () => Promise<{ ok: boolean }>;
+  reportPetRegions: (regions: PetInteractionRegion[]) => void;
+  onPetInput: (
+    callback: (payload: PetInputPayload) => void
+  ) => () => void;
+  setPetInputSuppressed?: (petId: string, suppressed: boolean) => void;
   setOverlayFocusable: (focusable: boolean) => void;
   openAuxiliary: (id: string) => Promise<boolean>;
   openChat: (
     mode: "text" | "voice",
-    dialogModuleId?: string
+    dialogModuleId?: string,
+    anchor?: PetInteractionRegion
   ) => Promise<boolean>;
+  updateChatAnchor: (anchor: PetInteractionRegion) => void;
+  openPetChat: (anchor: PetChatAnchor) => Promise<boolean>;
+  onPetChatState: (callback: (state: PetChatState) => void) => () => void;
   importExternalModule: () => Promise<{
     canceled: boolean;
     module?: CustomDialogModule;

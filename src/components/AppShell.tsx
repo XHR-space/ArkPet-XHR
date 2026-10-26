@@ -16,7 +16,10 @@ import { HomeView } from "../views/HomeView";
 import { SettingsView } from "../views/SettingsView";
 import { TrainingView } from "../views/TrainView";
 import { WakeView } from "../views/WakeView";
-import { WorkshopView } from "../views/WorkshopView";
+import {
+  ADVANCED_DRAFT_STORAGE_PREFIX,
+  WorkshopView
+} from "../views/WorkshopView";
 import { ModuleManagerView } from "../views/ModuleView";
 
 export type PetMode = "active" | "desktopSleeping" | "resting";
@@ -48,6 +51,25 @@ export function AppShell() {
     document.documentElement.dataset.theme =
       state?.settings.appearance?.theme || "default";
   }, [state?.settings.appearance?.theme]);
+
+  useEffect(() => {
+    const handler = (event: BeforeUnloadEvent) => {
+      try {
+        for (let index = 0; index < window.sessionStorage.length; index += 1) {
+          const key = window.sessionStorage.key(index);
+          if (key?.startsWith(ADVANCED_DRAFT_STORAGE_PREFIX)) {
+            event.preventDefault();
+            event.returnValue = "";
+            return;
+          }
+        }
+      } catch {
+        return;
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
 
   useEffect(() => {
     if (!state || state.activeView !== "workshop") return;

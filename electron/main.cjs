@@ -401,8 +401,15 @@ let mouseDragHelperReady = false;
 let mouseDragActive = false;
 const auxiliaryWindows = new Map();
 const chatWindows = new Map();
+const petChatWindows = new Map();
+const chatFollowTargets = new Map();
+const chatAnchors = new Map();
+const petInteractionWindows = new Map();
+const petInteractionRegions = new Map();
+const suppressedPetIds = new Set();
 const externalModuleWindows = new Map();
 const climbWindows = new Map();
+let overlayInteractionFocusable = false;
 const VOICE_SERVICE_URL = "http://127.0.0.1:9880";
 // 官方 Windows 整合包（含引擎代码、独立 Python 运行环境、编码器与权重）。
 const VOICE_ENGINE_DOWNLOAD_URL =
@@ -1010,15 +1017,26 @@ function broadcastState() {
   if (!store) return;
   const state = store.get();
   const moduleWindowIds = new Set();
+  const interactionWindowIds = new Set();
   for (const moduleWindow of externalModuleWindows.values()) {
     if (moduleWindow && !moduleWindow.isDestroyed()) {
       moduleWindowIds.add(moduleWindow.webContents.id);
     }
   }
+  for (const entry of petInteractionWindows.values()) {
+    if (entry?.window && !entry.window.isDestroyed()) {
+      interactionWindowIds.add(entry.window.webContents.id);
+    }
+  }
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) continue;
     // 外部模组不接收完整应用状态，只推脱敏后的桌宠快照。
-    if (moduleWindowIds.has(window.webContents.id)) continue;
+    if (
+      moduleWindowIds.has(window.webContents.id) ||
+      interactionWindowIds.has(window.webContents.id)
+    ) {
+      continue;
+    }
     window.webContents.send("store:changed", state);
   }
   const snapshot = modulePetSnapshot(state);
@@ -1057,6 +1075,7 @@ function positionOverlay() {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
   const { bounds } = getPrimaryMetrics();
   overlayWindow.setBounds(bounds);
+  updatePetInteractionRegions(Array.from(petInteractionRegions.values()));
   overlayWindow.webContents.send("display:changed", getPrimaryMetrics());
 }
 
@@ -1086,6 +1105,23 @@ function createControlWindow() {
   });
 
   controlWindow.loadURL(rendererUrl());
+  controlWindow.webContents.on("will-prevent-unload", (event) => {
+    const choice = dialog.showMessageBoxSync(controlWindow, {
+      type: "warning",
+      title: "未保存的改动",
+      message: "高级设置中有未保存的改动",
+      detail: "关闭窗口将丢失这些改动。",
+      buttons: ["取消", "仍然关闭"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true
+    });
+    if (choice === 1) {
+      event.preventDefault();
+    } else {
+      isQuitting = false;
+    }
+  });
   controlWindow.once("ready-to-show", () => controlWindow.show());
   controlWindow.on("close", (event) => {
     if (!isQuitting) {
@@ -1147,6 +1183,8 @@ function createOverlayWindow() {
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
   overlayWindow.loadURL(rendererUrl("overlay"));
   overlayWindow.on("closed", () => {
+    destroyPetInteractionWindows();
+    destroyPetChatWindows();
     overlayWindow = null;
   });
   if (!app.isPackaged) {
@@ -1178,7 +1216,225 @@ function showOverlay() {
 }
 
 function hideOverlay() {
+  destroyPetInteractionWindows();
+  destroyPetChatWindows();
   if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.hide();
+}
+
+function isOverlaySender(sender) {
+  return Boolean(
+    sender &&
+      overlayWindow &&
+      !overlayWindow.isDestroyed() &&
+      !overlayWindow.webContents.isDestroyed() &&
+      overlayWindow.webContents.id === sender.id
+  );
+}
+
+function normalizeInteractionRegion(value) {
+  if (!value || typeof value !== "object") return null;
+  const petId = String(value.petId || "").trim();
+  const x = Number(value.x);
+  const y = Number(value.y);
+  const width = Number(value.width);
+  const height = Number(value.height);
+  if (
+    !petId ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height)
+  ) {
+    return null;
+  }
+  return {
+    petId,
+    x,
+    y,
+    width: Math.min(4096, Math.max(1, Math.round(width))),
+    height: Math.min(4096, Math.max(1, Math.round(height))),
+    visible: value.visible !== false
+  };
+}
+
+function normalizedScreenBounds(region, overlayBounds) {
+  const overlayRight = overlayBounds.x + overlayBounds.width;
+  const overlayBottom = overlayBounds.y + overlayBounds.height;
+  const left = Math.min(
+    overlayRight - 1,
+    Math.max(overlayBounds.x, Math.round(overlayBounds.x + region.x))
+  );
+  const top = Math.min(
+    overlayBottom - 1,
+    Math.max(overlayBounds.y, Math.round(overlayBounds.y + region.y))
+  );
+  return {
+    x: left,
+    y: top,
+    width: Math.max(1, Math.min(region.width, overlayRight - left)),
+    height: Math.max(1, Math.min(region.height, overlayBottom - top))
+  };
+}
+
+function petIdForInteractionSender(sender) {
+  if (!sender) return "";
+  for (const [petId, entry] of petInteractionWindows) {
+    const window = entry?.window;
+    if (
+      window &&
+      !window.isDestroyed() &&
+      !window.webContents.isDestroyed() &&
+      window.webContents.id === sender.id
+    ) {
+      return petId;
+    }
+  }
+  return "";
+}
+
+function destroyPetInteractionWindow(petId) {
+  const entry = petInteractionWindows.get(petId);
+  petInteractionWindows.delete(petId);
+  petInteractionRegions.delete(petId);
+  suppressedPetIds.delete(petId);
+  if (entry?.window && !entry.window.isDestroyed()) entry.window.destroy();
+}
+
+function destroyPetInteractionWindows() {
+  for (const petId of Array.from(petInteractionWindows.keys())) {
+    destroyPetInteractionWindow(petId);
+  }
+  petInteractionRegions.clear();
+}
+
+function hideSuppressedPetInteractionWindows() {
+  for (const [petId, entry] of petInteractionWindows) {
+    if (!suppressedPetIds.has(petId)) continue;
+    if (entry?.window && !entry.window.isDestroyed()) {
+      entry.window.hide();
+      entry.promoted = false;
+    }
+  }
+}
+
+function showPetInteractionWindows() {
+  if (
+    !overlayWindow ||
+    overlayWindow.isDestroyed() ||
+    !overlayWindow.isVisible()
+  ) {
+    return;
+  }
+  for (const [petId, entry] of petInteractionWindows) {
+    if (suppressedPetIds.has(petId)) continue;
+    if (entry?.window && !entry.window.isDestroyed()) {
+      entry.window.showInactive();
+      if (!entry.promoted) {
+        entry.window.moveTop();
+        entry.promoted = true;
+      }
+    }
+  }
+}
+
+function createPetInteractionWindow(petId, bounds) {
+  if (suppressedPetIds.has(petId)) return null;
+  const window = new BrowserWindow({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    focusable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, "interaction-preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+      sandbox: false
+    }
+  });
+
+  window.setAlwaysOnTop(true, "screen-saver");
+  window.setFocusable(false);
+  window.setSkipTaskbar(true);
+  window.setBackgroundColor("#00000000");
+  window.setIgnoreMouseEvents(false);
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.on("closed", () => {
+    const current = petInteractionWindows.get(petId);
+    if (current?.window === window) {
+      petInteractionWindows.delete(petId);
+      petInteractionRegions.delete(petId);
+      suppressedPetIds.delete(petId);
+    }
+  });
+  window.loadURL(
+    `data:text/html;charset=utf-8,${encodeURIComponent(
+      "<!doctype html><html><head><style>html,body{width:100%;height:100%;margin:0;padding:0;overflow:hidden;background:transparent;border:0;box-shadow:none;}</style></head><body></body></html>"
+    )}`
+  );
+  const entry = { window, promoted: false };
+  petInteractionWindows.set(petId, entry);
+  return entry;
+}
+
+function updatePetInteractionRegions(regions) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  const overlayBounds = overlayWindow.getBounds();
+  const incoming = Array.isArray(regions) ? regions : [];
+  const activePetIds = new Set();
+
+  for (const value of incoming) {
+    const region = normalizeInteractionRegion(value);
+    if (!region || !region.visible) continue;
+    activePetIds.add(region.petId);
+    const bounds = normalizedScreenBounds(region, overlayBounds);
+    petInteractionRegions.set(region.petId, { ...region, bounds });
+
+    if (suppressedPetIds.has(region.petId)) {
+      const entry = petInteractionWindows.get(region.petId);
+      if (entry?.window && !entry.window.isDestroyed()) {
+        entry.window.hide();
+        entry.promoted = false;
+      }
+      continue;
+    }
+
+    let entry = petInteractionWindows.get(region.petId);
+    if (!entry?.window || entry.window.isDestroyed()) {
+      entry = createPetInteractionWindow(region.petId, bounds);
+      if (!entry) continue;
+    } else {
+      entry.window.setBounds(bounds);
+    }
+
+    if (!overlayWindow.isVisible()) {
+      entry.window.hide();
+      entry.promoted = false;
+    } else {
+      entry.window.showInactive();
+      if (!entry.promoted) {
+        entry.window.moveTop();
+        entry.promoted = true;
+      }
+    }
+  }
+
+  for (const petId of Array.from(petInteractionWindows.keys())) {
+    if (!activePetIds.has(petId)) destroyPetInteractionWindow(petId);
+  }
 }
 
 function pointToPrimaryDisplay(screenPoint) {
@@ -1190,9 +1446,18 @@ function pointToPrimaryDisplay(screenPoint) {
 }
 
 function sendOverlayCommand(command) {
+  const nextCommand = { ...command };
+
+  if (nextCommand.type === "edit-lock") {
+    // Transient UI state belongs to the overlay only; never persist or broadcast it.
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.webContents.send("overlay:command", nextCommand);
+    }
+    return true;
+  }
+
   const window = createOverlayWindow();
   showOverlay();
-  const nextCommand = { ...command };
 
   if (command.type === "release" && controlWindow && !controlWindow.isDestroyed()) {
     const bounds = controlWindow.getBounds();
@@ -1276,15 +1541,229 @@ function resolveDialogModule(state, requestedId) {
   );
 }
 
-function createChatWindow(mode, dialogModuleId) {
+function normalizeChatAnchor(value) {
+  if (!value || typeof value !== "object") return null;
+  const petId = String(value.petId || "").trim();
+  const x = Number(value.x);
+  const y = Number(value.y);
+  const width = Number(value.width);
+  const height = Number(value.height);
+  if (
+    !petId ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height)
+  ) {
+    return null;
+  }
+  return {
+    petId,
+    x,
+    y,
+    width: Math.max(1, width),
+    height: Math.max(1, height)
+  };
+}
+
+function chatAnchorToScreen(value) {
+  const anchor = normalizeChatAnchor(value);
+  if (!anchor || !overlayWindow || overlayWindow.isDestroyed()) return anchor;
+  const bounds = overlayWindow.getBounds();
+  return {
+    ...anchor,
+    x: bounds.x + anchor.x,
+    y: bounds.y + anchor.y
+  };
+}
+
+function clamp(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function positionChatWindowAtAnchor(window, value) {
+  const anchor = normalizeChatAnchor(value);
+  if (!window || window.isDestroyed() || !anchor) return false;
+  const display = screen.getDisplayNearestPoint({
+    x: Math.round(anchor.x + anchor.width / 2),
+    y: Math.round(anchor.y + anchor.height / 2)
+  });
+  const workArea = display.workArea;
+  const bounds = window.getBounds();
+  const gap = 12;
+  let x = anchor.x + anchor.width + gap;
+  if (x + bounds.width > workArea.x + workArea.width) {
+    x = anchor.x - bounds.width - gap;
+  }
+  x = clamp(x, workArea.x, workArea.x + workArea.width - bounds.width);
+  const y = clamp(
+    anchor.y + (anchor.height - bounds.height) / 2,
+    workArea.y,
+    workArea.y + workArea.height - bounds.height
+  );
+  const nextX = Math.round(x);
+  const nextY = Math.round(y);
+  if (
+    Math.abs(bounds.x - nextX) < 1 &&
+    Math.abs(bounds.y - nextY) < 1
+  ) {
+    return true;
+  }
+  window.setPosition(nextX, nextY);
+  return true;
+}
+
+function positionPetChatWindowAtAnchor(window, value) {
+  const anchor = normalizeChatAnchor(value);
+  if (!window || window.isDestroyed() || !anchor) return false;
+  const display = screen.getDisplayNearestPoint({
+    x: Math.round(anchor.x + anchor.width / 2),
+    y: Math.round(anchor.y + anchor.height / 2)
+  });
+  const workArea = display.workArea;
+  const bounds = window.getBounds();
+  const gap = 12;
+  let x = anchor.x + anchor.width + gap;
+  if (x + bounds.width > workArea.x + workArea.width) {
+    x = anchor.x - bounds.width - gap;
+  }
+  x = clamp(x, workArea.x, workArea.x + workArea.width - bounds.width);
+  const y = clamp(
+    anchor.y,
+    workArea.y,
+    workArea.y + workArea.height - bounds.height
+  );
+  const nextX = Math.round(x);
+  const nextY = Math.round(y);
+  if (
+    Math.abs(bounds.x - nextX) < 1 &&
+    Math.abs(bounds.y - nextY) < 1
+  ) {
+    return true;
+  }
+  window.setPosition(nextX, nextY);
+  return true;
+}
+
+function sendPetChatState(petId, open) {
+  if (
+    !overlayWindow ||
+    overlayWindow.isDestroyed() ||
+    overlayWindow.webContents.isDestroyed()
+  ) {
+    return;
+  }
+  overlayWindow.webContents.send("overlay:pet-chat-state", {
+    petId,
+    open: Boolean(open)
+  });
+}
+
+function destroyPetChatWindow(petId) {
+  const window = petChatWindows.get(petId);
+  petChatWindows.delete(petId);
+  if (window && !window.isDestroyed()) window.destroy();
+  sendPetChatState(petId, false);
+}
+
+function destroyPetChatWindows() {
+  for (const petId of Array.from(petChatWindows.keys())) {
+    destroyPetChatWindow(petId);
+  }
+}
+
+function openPetChatWindow(anchorValue) {
+  const anchor = normalizeChatAnchor(anchorValue);
+  if (!anchor || !store) return false;
+  const pet = (store.get().pets || []).find((item) => item.id === anchor.petId);
+  if (!pet) return false;
+
+  const existing = petChatWindows.get(anchor.petId);
+  if (existing && !existing.isDestroyed()) {
+    positionPetChatWindowAtAnchor(existing, anchor);
+    existing.show();
+    existing.focus();
+    sendPetChatState(anchor.petId, true);
+    return true;
+  }
+
+  const window = new BrowserWindow({
+    width: 320,
+    height: 310,
+    minWidth: 280,
+    minHeight: 240,
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    hasShadow: false,
+    skipTaskbar: true,
+    resizable: false,
+    alwaysOnTop: false,
+    focusable: true,
+    show: false,
+    autoHideMenuBar: true,
+    title: `${pet.name} - 对话`,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+      sandbox: false
+    }
+  });
+  petChatWindows.set(anchor.petId, window);
+  positionPetChatWindowAtAnchor(window, anchor);
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  let revealed = false;
+  let failed = false;
+  const reveal = () => {
+    if (revealed || failed || window.isDestroyed()) return;
+    revealed = true;
+    window.show();
+    window.focus();
+    sendPetChatState(anchor.petId, true);
+  };
+  const fail = () => {
+    if (failed || window.isDestroyed()) return;
+    failed = true;
+    window.destroy();
+  };
+  window.webContents.once("did-finish-load", reveal);
+  window.once("ready-to-show", reveal);
+  window.webContents.on("did-fail-load", (_event, _code, _description, _url, isMainFrame) => {
+    if (isMainFrame) fail();
+  });
+  window.webContents.once("render-process-gone", fail);
+  window.on("closed", () => {
+    const current = petChatWindows.get(anchor.petId);
+    if (current === window) {
+      petChatWindows.delete(anchor.petId);
+      sendPetChatState(anchor.petId, false);
+    }
+  });
+  window.loadURL(rendererUrl(`bubble-chat:${encodeURIComponent(anchor.petId)}`));
+  return true;
+}
+
+function createChatWindow(mode, dialogModuleId, anchorValue) {
+  if (!store) return null;
   const state = store.get();
   const dialogModule = resolveDialogModule(state, dialogModuleId);
   const resolvedModuleId = dialogModule?.id || "";
-  const key = `${mode}:${resolvedModuleId || "default"}`;
+  const anchor = normalizeChatAnchor(anchorValue);
+  const petId = anchor?.petId || "";
+  const pet = (state.pets || []).find((item) => item.id === petId);
+  if (!pet) return null;
+  const nextMode = mode === "voice" ? "voice" : "text";
+  const key = `${nextMode}:${resolvedModuleId || "default"}:${petId}`;
   const existing = chatWindows.get(key);
   if (existing && !existing.isDestroyed()) {
+    chatFollowTargets.set(key, petId);
+    chatAnchors.set(petId, anchor);
+    positionChatWindowAtAnchor(existing, anchor);
     existing.show();
     existing.focus();
+    sendPetChatState(petId, true);
     return existing;
   }
   const window = new BrowserWindow({
@@ -1295,6 +1774,8 @@ function createChatWindow(mode, dialogModuleId) {
     title: mode === "voice" ? "桌宠语音对话" : "桌宠文字对话",
     autoHideMenuBar: true,
     backgroundColor: dialogModule?.background || "#f7f5ef",
+    alwaysOnTop: false,
+    modal: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -1302,10 +1783,58 @@ function createChatWindow(mode, dialogModuleId) {
       sandbox: false
     }
   });
-  window.loadURL(rendererUrl(`chat:${mode}`));
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  window.on("closed", () => chatWindows.delete(key));
   chatWindows.set(key, window);
+  chatFollowTargets.set(key, petId);
+  chatAnchors.set(petId, anchor);
+  positionChatWindowAtAnchor(window, anchor);
+  sendPetChatState(petId, true);
+  let failed = false;
+  let loadTimeout = null;
+  const fail = () => {
+    if (loadTimeout) {
+      clearTimeout(loadTimeout);
+      loadTimeout = null;
+    }
+    if (failed || window.isDestroyed()) return;
+    failed = true;
+    window.destroy();
+  };
+  window.webContents.on(
+    "did-fail-load",
+    (_event, _code, _description, _url, isMainFrame) => {
+      if (isMainFrame) fail();
+    }
+  );
+  window.webContents.once("render-process-gone", fail);
+  window.webContents.once("did-finish-load", () => {
+    if (!loadTimeout) return;
+    clearTimeout(loadTimeout);
+    loadTimeout = null;
+  });
+  loadTimeout = setTimeout(fail, 8000);
+  loadTimeout.unref?.();
+  window.loadURL(
+    rendererUrl(`chat:${nextMode}:${encodeURIComponent(petId)}`)
+  ).catch(fail);
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.on("closed", () => {
+    if (loadTimeout) {
+      clearTimeout(loadTimeout);
+      loadTimeout = null;
+    }
+    if (chatWindows.get(key) !== window) return;
+    chatWindows.delete(key);
+    chatFollowTargets.delete(key);
+    if (
+      petId &&
+      !Array.from(chatFollowTargets.values()).includes(petId)
+    ) {
+      chatAnchors.delete(petId);
+    }
+    if (!Array.from(chatFollowTargets.values()).includes(petId)) {
+      sendPetChatState(petId, false);
+    }
+  });
   return window;
 }
 
@@ -3016,8 +3545,7 @@ function registerIpc() {
 
   ipcMain.on("overlay:ignore-mouse", (_event, ignore) => {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
-      const shouldIgnore =
-        (process.platform === "win32" && mouseDragActive) || Boolean(ignore);
+      const shouldIgnore = overlayInteractionFocusable ? false : Boolean(ignore);
       overlayWindow.setIgnoreMouseEvents(shouldIgnore, { forward: true });
     }
   });
@@ -3047,12 +3575,68 @@ function registerIpc() {
   });
   ipcMain.on("overlay:set-focusable", (_event, focusable) => {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
-      overlayWindow.setFocusable(Boolean(focusable));
-      if (focusable) {
+      overlayInteractionFocusable = Boolean(focusable);
+      overlayWindow.setFocusable(overlayInteractionFocusable);
+      if (overlayInteractionFocusable) {
+        hideSuppressedPetInteractionWindows();
+        showPetInteractionWindows();
         overlayWindow.setIgnoreMouseEvents(false);
         overlayWindow.focus();
+      } else {
+        overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+        showPetInteractionWindows();
       }
     }
+  });
+  ipcMain.on("overlay:pet-input-suppressed", (event, payload) => {
+    if (!isOverlaySender(event.sender)) return;
+    const petId = String(payload?.petId || "").trim().slice(0, 200);
+    if (!petId) return;
+    const suppressed = Boolean(payload?.suppressed);
+    if (suppressed) {
+      suppressedPetIds.add(petId);
+      const entry = petInteractionWindows.get(petId);
+      if (entry?.window && !entry.window.isDestroyed()) {
+        entry.window.hide();
+        entry.promoted = false;
+      }
+      return;
+    }
+
+    suppressedPetIds.delete(petId);
+    updatePetInteractionRegions(Array.from(petInteractionRegions.values()));
+  });
+  ipcMain.on("overlay:pet-regions", (event, regions) => {
+    if (!isOverlaySender(event.sender)) return;
+    updatePetInteractionRegions(regions);
+  });
+  ipcMain.on("overlay:pet-input", (event, payload) => {
+    const petId = petIdForInteractionSender(event.sender);
+    if (
+      !petId ||
+      !overlayWindow ||
+      overlayWindow.isDestroyed() ||
+      overlayWindow.webContents.isDestroyed()
+    ) {
+      return;
+    }
+    const screenX = Number(payload?.screenX);
+    const screenY = Number(payload?.screenY);
+    if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
+    const overlayBounds = overlayWindow.getBounds();
+    overlayWindow.webContents.send("overlay:pet-input", {
+      petId,
+      type: String(payload?.type || "").slice(0, 32),
+      x: screenX - overlayBounds.x,
+      y: screenY - overlayBounds.y,
+      button: Number(payload?.button) || 0,
+      buttons: Number(payload?.buttons) || 0
+    });
+  });
+  ipcMain.on("chat:update-anchor", (event, anchor) => {
+    if (!isOverlaySender(event.sender)) return;
+    const normalized = chatAnchorToScreen(anchor);
+    if (normalized) chatAnchors.set(normalized.petId, normalized);
   });
   // —— 外部模组接口（只有模组窗口能调用，且拿不到完整状态）——
   ipcMain.handle("module:info", (event) => {
@@ -3264,7 +3848,7 @@ function registerIpc() {
     createAuxiliaryWindow(config);
     return true;
   });
-  ipcMain.handle("chat:open", (_event, mode, dialogModuleId) => {
+  ipcMain.handle("chat:open", (_event, mode, dialogModuleId, anchor) => {
     const state = store.get();
     const dialogModule = resolveDialogModule(
       state,
@@ -3283,8 +3867,13 @@ function registerIpc() {
       });
       broadcastState();
     }
-    createChatWindow(mode, nextModuleId);
-    return true;
+    return Boolean(
+      createChatWindow(mode, nextModuleId, chatAnchorToScreen(anchor))
+    );
+  });
+  ipcMain.handle("pet-chat:open", (event, anchor) => {
+    if (!isOverlaySender(event.sender)) return false;
+    return openPetChatWindow(chatAnchorToScreen(anchor));
   });
 
   ipcMain.handle("assets:import-pet", async (_event, petId) => {
@@ -4613,9 +5202,14 @@ ipcMain.handle("ttsInstallStatus", () => {
   ipcMain.handle("update:status", () => ({ ...updateRuntime }));
   ipcMain.handle("update:check", () => checkForUpdates({ force: false }));
   ipcMain.handle("update:install", () => {
+    if (
+      updateRuntime.status !== "ready" ||
+      !updateRuntime.downloadedPath ||
+      !fs.existsSync(updateRuntime.downloadedPath)
+    ) {
+      return false;
+    }
     updateCheckPromise = null;
-    const launched = launchDownloadedUpdate();
-    if (!launched) return false;
     isQuitting = true;
     app.quit();
     return true;
@@ -4726,8 +5320,13 @@ if (!singleInstance) {
 
 app.on("before-quit", () => {
   isQuitting = true;
+});
+
+app.on("will-quit", () => {
   stopMouseDragHelper();
   mouseDragActive = false;
+  destroyPetInteractionWindows();
+  destroyPetChatWindows();
   if (store) {
     try {
       store.flushSave();

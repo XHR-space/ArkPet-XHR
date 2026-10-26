@@ -3,6 +3,7 @@ import "@pixi/unsafe-eval";
 import { Application, Assets } from "pixi.js";
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode
@@ -147,12 +148,29 @@ export function SpinePet({
   onSkeletonInfo
 }: SpinePetProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const applicationRef = useRef<Application | null>(null);
   const spineRef = useRef<Spine | null>(null);
-  const fitProfileRef = useRef<{
-    width: number;
-    height: number;
+  const fitToHostRef = useRef<() => void>(() => undefined);
+  const fitCacheRef = useRef<{
+    hostWidth: number;
+    hostHeight: number;
+    fitWidth: number | null;
+    fitHeight: number | null;
+    fitRatio: number;
+    normalizeBodySize: boolean;
+    bounds: { x: number; y: number; width: number; height: number };
     scale: number;
   } | null>(null);
+  const layoutRef = useRef({
+    fitWidth,
+    fitHeight,
+    fitRatio,
+    offsetX,
+    offsetY,
+    anchorBottom,
+    normalizeBodySize
+  });
+  const maxFPSRef = useRef(maxFPS);
   const availableAnimationsRef = useRef<string[]>([]);
   const animationDurationsRef = useRef<Record<string, number>>({});
   const onAnimationsRef = useRef(onAnimations);
@@ -163,6 +181,17 @@ export function SpinePet({
   const [failed, setFailed] = useState(false);
   const [ready, setReady] = useState(false);
 
+  layoutRef.current = {
+    fitWidth,
+    fitHeight,
+    fitRatio,
+    offsetX,
+    offsetY,
+    anchorBottom,
+    normalizeBodySize
+  };
+  maxFPSRef.current = maxFPS;
+
   useEffect(() => {
     onAnimationsRef.current = onAnimations;
     onAnimationDataRef.current = onAnimationData;
@@ -170,20 +199,30 @@ export function SpinePet({
     boneMapRef.current = boneMap;
     presetWalkRef.current =
       state === "walk" && actionBindings?.walk === FIRST_PET_LEG_WALK;
-  }, [onAnimations, onAnimationData, onSkeletonInfo, boneMap, state, actionBindings]);
+  }, [
+    onAnimations,
+    onAnimationData,
+    onSkeletonInfo,
+    boneMap,
+    state,
+    actionBindings
+  ]);
 
   useEffect(() => {
     let disposed = false;
     let application: Application | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let fitFrame: number | null = null;
     let mountTimer: number | null = null;
     let visibilityHandler: (() => void) | null = null;
     setFailed(false);
     setReady(false);
-    fitProfileRef.current = null;
+    fitCacheRef.current = null;
 
     async function mount() {
       const host = hostRef.current;
       if (!host) return;
+      fitCacheRef.current = null;
 
       try {
         application = new Application({
@@ -193,8 +232,9 @@ export function SpinePet({
           autoDensity: true,
           resolution: Math.min(2, window.devicePixelRatio || 1)
         });
-        if (maxFPS !== undefined) {
-          application.ticker.maxFPS = maxFPS;
+        applicationRef.current = application;
+        if (maxFPSRef.current !== undefined) {
+          application.ticker.maxFPS = maxFPSRef.current;
         }
         visibilityHandler = () => {
           if (!application) return;
@@ -267,69 +307,108 @@ export function SpinePet({
         });
 
         const fitToHost = () => {
+          const activeApplication = application;
+          if (!activeApplication) return;
+          const {
+            fitWidth: nextFitWidth,
+            fitHeight: nextFitHeight,
+            fitRatio: nextFitRatio,
+            offsetX: nextOffsetX,
+            offsetY: nextOffsetY,
+            anchorBottom: nextAnchorBottom,
+            normalizeBodySize: nextNormalizeBodySize
+          } = layoutRef.current;
           const width = Math.max(1, host.clientWidth);
           const height = Math.max(1, host.clientHeight);
-          const desiredWidth = fitWidth || width;
-          const desiredHeight = fitHeight || height;
-          const bounds = spine.getLocalBounds();
-          if (!bounds.width || !bounds.height) return;
-          spine.skeleton.updateWorldTransform();
-          const bones = spine.skeleton.bones;
-          const headBone = bones.find((bone) =>
-            /f_head(_[^ ]+)?$|^head$/i.test(bone.data.name)
-          );
-          const hipBone = bones.find((bone) =>
-            /f_hip(_[^ ]+)?$|^hip$/i.test(bone.data.name)
-          );
-          const waistBone = bones.find((bone) =>
-            /f_waist(_[^ ]+)?$|^waist$/i.test(bone.data.name)
-          );
-          const bodyHeight =
-            headBone && hipBone
-              ? Math.abs(headBone.worldY - hipBone.worldY)
-              : headBone && waistBone
-                ? Math.abs(headBone.worldY - waistBone.worldY)
-              : 0;
-          const boundsScale =
-            Math.min(
-              desiredWidth / bounds.width,
-              desiredHeight / bounds.height
-            ) * fitRatio;
-          const bodyScale =
-            bodyHeight > 1
-              ? (desiredHeight * 0.104) / bodyHeight
-              : boundsScale;
-          const previousProfile = fitProfileRef.current;
-          const dimensionsChanged =
-            !previousProfile ||
-            Math.abs(previousProfile.width - desiredWidth) > 0.5 ||
-            Math.abs(previousProfile.height - desiredHeight) > 0.5;
-          const scale = dimensionsChanged
-            ? normalizeBodySize && bodyHeight > 1
-              ? bodyScale
-              : boundsScale
-            : previousProfile.scale;
-          fitProfileRef.current = {
-            width: desiredWidth,
-            height: desiredHeight,
-            scale
-          };
+          if (
+            activeApplication.renderer.screen.width !== width ||
+            activeApplication.renderer.screen.height !== height
+          ) {
+            activeApplication.resize();
+          }
+          const desiredWidth = nextFitWidth || width;
+          const desiredHeight = nextFitHeight || height;
+          const fitWidthKey = nextFitWidth ?? null;
+          const fitHeightKey = nextFitHeight ?? null;
+          const cached = fitCacheRef.current;
+          const cacheMatches =
+            cached !== null &&
+            cached.hostWidth === width &&
+            cached.hostHeight === height &&
+            cached.fitWidth === fitWidthKey &&
+            cached.fitHeight === fitHeightKey &&
+            cached.fitRatio === nextFitRatio &&
+            cached.normalizeBodySize === nextNormalizeBodySize;
+
+          if (!cacheMatches || !cached) {
+            spine.skeleton.updateWorldTransform();
+            const bounds = spine.getLocalBounds();
+            if (!bounds.width || !bounds.height) return;
+            const bones = spine.skeleton.bones;
+            const headBone = bones.find((bone) =>
+              /f_head(_[^ ]+)?$|^head$/i.test(bone.data.name)
+            );
+            const hipBone = bones.find((bone) =>
+              /f_hip(_[^ ]+)?$|^hip$/i.test(bone.data.name)
+            );
+            const waistBone = bones.find((bone) =>
+              /f_waist(_[^ ]+)?$|^waist$/i.test(bone.data.name)
+            );
+            const bodyHeight =
+              headBone && hipBone
+                ? Math.abs(headBone.worldY - hipBone.worldY)
+                : headBone && waistBone
+                  ? Math.abs(headBone.worldY - waistBone.worldY)
+                  : 0;
+            const boundsScale =
+              Math.min(
+                desiredWidth / bounds.width,
+                desiredHeight / bounds.height
+              ) * nextFitRatio;
+            const bodyScale =
+              bodyHeight > 1
+                ? (desiredHeight * 0.104) / bodyHeight
+                : boundsScale;
+            fitCacheRef.current = {
+              hostWidth: width,
+              hostHeight: height,
+              fitWidth: fitWidthKey,
+              fitHeight: fitHeightKey,
+              fitRatio: nextFitRatio,
+              normalizeBodySize: nextNormalizeBodySize,
+              bounds: {
+                x: bounds.x,
+                y: bounds.y,
+                width: bounds.width,
+                height: bounds.height
+              },
+              scale:
+                nextNormalizeBodySize && bodyHeight > 1
+                  ? bodyScale
+                  : boundsScale
+            };
+          }
+
+          const fitCache = fitCacheRef.current;
+          if (!fitCache) return;
+          const { bounds, scale } = fitCache;
           spine.scale.set(scale);
           host.dataset.spineScale = scale.toFixed(4);
           const x =
             (width - bounds.width * scale) / 2 -
             bounds.x * scale +
-            offsetX;
-          const y = anchorBottom
+            nextOffsetX;
+          const y = nextAnchorBottom
             ? height -
               2 -
               (bounds.y + bounds.height) * scale +
-              offsetY
+              nextOffsetY
             : (height - bounds.height * scale) / 2 -
               bounds.y * scale +
-              offsetY;
+              nextOffsetY;
           spine.position.set(x, y);
         };
+        fitToHostRef.current = fitToHost;
 
         const initialName = pickAnimation(
           animationNames,
@@ -341,11 +420,9 @@ export function SpinePet({
         if (initialName) spine.state.setAnimation(0, initialName, true);
 
         fitToHost();
-        requestAnimationFrame(fitToHost);
-        const observer = new ResizeObserver(fitToHost);
-        observer.observe(host);
-        (application as Application & { spineResizeObserver?: ResizeObserver })
-          .spineResizeObserver = observer;
+        fitFrame = requestAnimationFrame(fitToHost);
+        resizeObserver = new ResizeObserver(fitToHost);
+        resizeObserver.observe(host);
         setReady(true);
       } catch (error) {
         const details =
@@ -373,21 +450,31 @@ export function SpinePet({
         document.removeEventListener("visibilitychange", visibilityHandler);
         visibilityHandler = null;
       }
-      fitProfileRef.current = null;
+      if (fitFrame !== null) cancelAnimationFrame(fitFrame);
+      resizeObserver?.disconnect();
+      fitToHostRef.current = () => undefined;
+      fitCacheRef.current = null;
+      applicationRef.current = null;
       spineRef.current = null;
       availableAnimationsRef.current = [];
-      const extension = application as
-        | (Application & { spineResizeObserver?: ResizeObserver })
-        | null;
-      extension?.spineResizeObserver?.disconnect();
       application?.destroy(true, {
         children: true,
         texture: false,
         baseTexture: false
       });
     };
+  }, [skelUrl, deferMountMs]);
+
+  useEffect(() => {
+    const application = applicationRef.current;
+    if (!application || maxFPS === undefined) return;
+    application.ticker.maxFPS = maxFPS;
+  }, [maxFPS]);
+
+
+  useLayoutEffect(() => {
+    fitToHostRef.current();
   }, [
-    skelUrl,
     fitWidth,
     fitHeight,
     fitRatio,
@@ -396,9 +483,7 @@ export function SpinePet({
     displayWidth,
     displayHeight,
     anchorBottom,
-    normalizeBodySize,
-    maxFPS,
-    deferMountMs
+    normalizeBodySize
   ]);
 
   useEffect(() => {
@@ -413,6 +498,14 @@ export function SpinePet({
     if (!name) return;
     const spine = spineRef.current;
     spine.state.setAnimation(0, name, true);
+    spine.update(0);
+    fitCacheRef.current = null;
+    fitToHostRef.current();
+  }, [ready, state, actionBindings, actionOverride]);
+
+  useEffect(() => {
+    if (!ready || !spineRef.current) return;
+    const spine = spineRef.current;
     spine.state.timeScale =
       state === "walk"
         ? Math.min(4.5, Math.max(0.3, speedMultiplier))
@@ -421,7 +514,7 @@ export function SpinePet({
           : state === "windDown"
             ? 0.86
           : 1;
-  }, [ready, state, speedMultiplier, actionBindings, actionOverride]);
+  }, [ready, state, speedMultiplier]);
 
   if (failed) return <>{fallback}</>;
 

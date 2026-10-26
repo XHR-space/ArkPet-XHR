@@ -3,14 +3,17 @@ import { useState, type CSSProperties, type FormEvent } from "react";
 import { makeId } from "../lib/id";
 import { useAppState } from "../state";
 import type { ChatMessage } from "../types";
-import {
-  listDialogModules,
-  resolveDialogModule
-} from "../lib/dialogModules";
+import { resolveDialogModule } from "../lib/dialogModules";
 import { VoiceAgentPanel } from "./VoicePanel";
 
-export function ChatWindow({ mode }: { mode: "text" | "voice" }) {
-  const { state, updateState } = useAppState();
+export function ChatWindow({
+  mode,
+  petId
+}: {
+  mode: "text" | "voice";
+  petId?: string;
+}) {
+  const { state } = useAppState();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -18,11 +21,34 @@ export function ChatWindow({ mode }: { mode: "text" | "voice" }) {
 
   if (!state) return null;
   const dialogModule = resolveDialogModule(state);
-  const dialogModules = listDialogModules(state);
-  const activePet =
-    state.pets.find((pet) => pet.id === state.activePetId) || state.pets[0];
-  const voiceProfileId = activePet?.modulePlugins?.voiceProfileId || "";
-  const aiModuleId = activePet?.modulePlugins?.aiModuleId || "";
+  const requestedPet = petId
+    ? state.pets.find((pet) => pet.id === petId)
+    : undefined;
+  if (petId && !requestedPet) {
+    return (
+      <main className="chat-window-shell">
+        <header className="chat-window-header">
+          <strong>角色不可用</strong>
+          <button type="button" aria-label="关闭对话" title="关闭" onClick={() => window.close()}>
+            <X size={17} />
+          </button>
+        </header>
+        <div className="chat-window-messages" role="alert">
+          <div className="chat-window-row">
+            <div className="chat-window-bubble">
+              <p>角色不存在或已删除，无法继续对话。</p>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+  const chatPet =
+    requestedPet ||
+    state.pets.find((pet) => pet.id === state.activePetId) ||
+    state.pets[0];
+  const voiceProfileId = chatPet?.modulePlugins?.voiceProfileId || "";
+  const aiModuleId = chatPet?.modulePlugins?.aiModuleId || "";
   const style = {
     "--chat-bg": dialogModule?.background || "#f7f5ef",
     "--chat-border": dialogModule?.borderColor || "#d9d7d0",
@@ -83,8 +109,8 @@ export function ChatWindow({ mode }: { mode: "text" | "voice" }) {
           content: message.content
         })),
         aiModuleId,
-          requestId,
-          activePet?.id
+        requestId,
+        chatPet?.id
       );
       setMessages([
         ...next,
@@ -113,34 +139,8 @@ export function ChatWindow({ mode }: { mode: "text" | "voice" }) {
   return (
     <main className="chat-window-shell" style={style}>
       <header className="chat-window-header">
-        <div>
-          <strong>{mode === "voice" ? "语音对话" : "文字对话"}</strong>
-          <span>{activePet?.name || "桌宠"}</span>
-        </div>
-        <select
-          value={dialogModule?.id || ""}
-          onChange={(event) =>
-            updateState({
-              settings: {
-                ...state.settings,
-                chat: {
-                  ...state.settings.chat,
-                  dialogModuleId: event.target.value
-                }
-              }
-            })
-          }
-        >
-          <option value="">默认外观</option>
-          {dialogModules
-            .filter((module) => module.enabled !== false)
-            .map((module) => (
-            <option value={module.id} key={module.id}>
-              {module.name}
-            </option>
-            ))}
-        </select>
-        <button type="button" onClick={() => window.close()}>
+        <strong>{chatPet?.name || "桌宠"}</strong>
+        <button type="button" aria-label="关闭对话" title="关闭" onClick={() => window.close()}>
           <X size={17} />
         </button>
       </header>

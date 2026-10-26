@@ -1,6 +1,6 @@
 {
   "name": "desk-companion-studio",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "private": true,
   "description": "A local-first Windows desktop companion studio.",
   "type": "module",
@@ -45,7 +45,7 @@
     "productName": "ArkPet",
     "executableName": "ArkPet",
     "afterPack": "scripts/after-pack.cjs",
-    "copyright": "Copyright © 2026 XHR-space",
+    "copyright": "Copyright (c) 2026 XHR-space",
     "asar": false,
     "directories": {
       "output": "release",

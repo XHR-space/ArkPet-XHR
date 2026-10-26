@@ -9,3 +9,9 @@ __pycache__/
 *.lnk
 control-capture.png
 release/
+
+# Local development and agent artifacts
+backups/
+AGENTS.md
+agents/
+config.toml

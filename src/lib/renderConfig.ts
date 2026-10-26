@@ -13,6 +13,21 @@ export const DEFAULT_RENDER_CONFIG: PetRenderConfig = {
   offsetY: 0
 };
 
+export type HitboxGeometry = {
+  displayWidth: number;
+  displayHeight: number;
+  hitboxWidth: number;
+  hitboxHeight: number;
+  hitboxOffsetX?: number;
+  hitboxOffsetY?: number;
+  direction?: 1 | -1;
+};
+
+export type HitboxPosition = {
+  left: number;
+  top: number;
+};
+
 export function getVisualSize(config?: Partial<PetRenderConfig> | null) {
   const hitboxWidth =
     Number(config?.hitboxWidth) || DEFAULT_RENDER_CONFIG.hitboxWidth;
@@ -21,6 +36,22 @@ export function getVisualSize(config?: Partial<PetRenderConfig> | null) {
   return {
     visualWidth: Number(config?.visualWidth) || hitboxWidth,
     visualHeight: Number(config?.visualHeight) || hitboxHeight
+  };
+}
+
+export function getHitboxPosition({
+  displayWidth,
+  displayHeight,
+  hitboxWidth,
+  hitboxHeight,
+  hitboxOffsetX = 0,
+  hitboxOffsetY = 0,
+  direction = 1
+}: HitboxGeometry): HitboxPosition {
+  const horizontalOffset = direction < 0 ? -hitboxOffsetX : hitboxOffsetX;
+  return {
+    left: (displayWidth - hitboxWidth) / 2 + horizontalOffset,
+    top: (displayHeight - hitboxHeight) / 2 + hitboxOffsetY
   };
 }
 

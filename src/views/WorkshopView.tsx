@@ -31,12 +31,11 @@ import {
   FIRST_PET_LEG_WALK_LABEL
 } from "../lib/firstPetLegWalk";
 import {
-  getVisualSize,
+  getHitboxPosition,
   withRenderConfigDefaults
 } from "../lib/renderConfig";
 import { useAppState } from "../state";
 import type {
-  AppState,
   BoneRoleMap,
   PetModulePlugins,
   PetProfile,
@@ -60,6 +59,56 @@ const advancedResizeEdges: AdvancedResizeEdge[] = [
   "se",
   "sw"
 ];
+
+function hasSameRenderConfig(
+  left: Partial<PetRenderConfig> | null,
+  right: Partial<PetRenderConfig> | null
+) {
+  return (
+    JSON.stringify(withRenderConfigDefaults(left)) ===
+    JSON.stringify(withRenderConfigDefaults(right))
+  );
+}
+
+export const ADVANCED_DRAFT_STORAGE_PREFIX =
+  "arkpet:advanced-render-draft:v1:";
+
+function getAdvancedDraftStorageKey(petId: string) {
+  return `${ADVANCED_DRAFT_STORAGE_PREFIX}${petId}`;
+}
+
+function readAdvancedRenderDraft(petId: string): PetRenderConfig | null {
+  try {
+    const raw = window.sessionStorage.getItem(getAdvancedDraftStorageKey(petId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PetRenderConfig> | null;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return withRenderConfigDefaults(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function writeAdvancedRenderDraft(petId: string, draft: PetRenderConfig) {
+  try {
+    window.sessionStorage.setItem(
+      getAdvancedDraftStorageKey(petId),
+      JSON.stringify(withRenderConfigDefaults(draft))
+    );
+  } catch {
+    // Session storage can be unavailable in restricted renderer contexts.
+  }
+}
+
+function clearAdvancedRenderDraft(petId: string) {
+  try {
+    window.sessionStorage.removeItem(getAdvancedDraftStorageKey(petId));
+  } catch {
+    // Nothing to clear when session storage is unavailable.
+  }
+}
 
 function formatVoiceInterval(seconds: number) {
   const total = Math.max(0, Math.round(Number(seconds) || 0));
@@ -102,14 +151,30 @@ export function WorkshopView() {
   const [draftDiagnostics, setDraftDiagnostics] =
     useState<ActionDiagnostics | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
-    const [advancedPreviewZoom, setAdvancedPreviewZoom] = useState(2.2);
+  const [advancedPreviewZoom, setAdvancedPreviewZoom] = useState(1.15);
+  const [advancedPreviewBaseScaleLock, setAdvancedPreviewBaseScaleLock] =
+    useState<number | null>(null);
   const [modulePickerOpen, setModulePickerOpen] = useState(false);
   const [voiceLineAudioUrl, setVoiceLineAudioUrl] = useState("");
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const stateRef = useRef<AppState | null>(null);
-  const petRef = useRef<PetProfile | null>(null);
-  const draftRenderConfigRef = useRef<PetRenderConfig | null>(null);
-  const renderConfigDirtyRef = useRef(false);
+  const advancedPointerCleanupRef = useRef<(() => void) | null>(null);
+  const editLockedPetIdRef = useRef<string | null>(null);
+  const draftOwnerPetIdRef = useRef<string | null>(null);
+  const draftPersistenceRef = useRef<{
+    petId: string;
+    draft: PetRenderConfig;
+  } | null>(null);
+
+  const currentPetForDraft = state
+    ? state.pets.find((item) => item.id === state.activePetId) || state.pets[0]
+    : null;
+  draftPersistenceRef.current =
+    currentPetForDraft &&
+    draftOwnerPetIdRef.current === currentPetForDraft.id &&
+    draftRenderConfig &&
+    renderConfigDirty
+      ? { petId: currentPetForDraft.id, draft: draftRenderConfig }
+      : null;
 
   useEffect(() => {
     if (!state) return;
@@ -152,78 +217,64 @@ export function WorkshopView() {
       state.pets.find((item) => item.id === state.activePetId) ||
       state.pets[0];
     if (!currentPet) return;
-    setDraftRenderConfig(withRenderConfigDefaults(currentPet.renderConfig));
-    setRenderConfigDirty(false);
+    restoreAdvancedRenderDraft(currentPet.id, currentPet.renderConfig);
   }, [state?.activePetId]);
 
   useEffect(() => {
-    if (!state || !renderConfigDirty) return;
-    const handler = (event: BeforeUnloadEvent) => {
-      const shouldSave = window.confirm(
-        "高级设置有未保存的改动，是否保存后退出？"
-      );
-      if (shouldSave && draftRenderConfig) {
-        const currentPet =
-          state.pets.find((item) => item.id === state.activePetId) ||
-          state.pets[0];
-        if (currentPet) {
-          window.deskPet.updateStateSync({
-            pets: state.pets.map((item) =>
-              item.id === currentPet.id
-                  ? {
-                      ...item,
-                      renderConfig: withRenderConfigDefaults(draftRenderConfig),
-                      desktopRenderConfig: withRenderConfigDefaults(
-                        draftRenderConfig
-                      )
-                    }
-                : item
-            )
-          });
-        }
-      }
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [state, renderConfigDirty, draftRenderConfig]);
+    if (showAdvanced) return;
+    advancedPointerCleanupRef.current?.();
+  }, [showAdvanced]);
 
   useEffect(() => {
-    stateRef.current = state;
-    petRef.current =
-      state?.pets.find((item) => item.id === state.activePetId) ||
-      state?.pets[0] ||
-      null;
-  }, [state]);
+    const pendingDraft = draftPersistenceRef.current;
+    if (!pendingDraft) return;
+    writeAdvancedRenderDraft(pendingDraft.petId, pendingDraft.draft);
+  }, [draftRenderConfig, renderConfigDirty, state?.activePetId]);
 
   useEffect(() => {
-    draftRenderConfigRef.current = draftRenderConfig;
-  }, [draftRenderConfig]);
-
-  useEffect(() => {
-    renderConfigDirtyRef.current = renderConfigDirty;
-  }, [renderConfigDirty]);
+    if (!state) return;
+    const currentPet =
+      state.pets.find((item) => item.id === state.activePetId) || state.pets[0];
+    const shouldLock = Boolean(showAdvanced && mode === "edit" && currentPet);
+    const lockedPetId = editLockedPetIdRef.current;
+    if (lockedPetId && (!shouldLock || lockedPetId !== currentPet?.id)) {
+      void window.deskPet
+        .overlayCommand({
+          type: "edit-lock",
+          petId: lockedPetId,
+          locked: false
+        } as never)
+        .catch(() => undefined);
+      editLockedPetIdRef.current = null;
+    }
+    if (shouldLock && currentPet && lockedPetId !== currentPet.id) {
+      void window.deskPet
+        .overlayCommand({
+          type: "edit-lock",
+          petId: currentPet.id,
+          locked: true
+        } as never)
+        .catch(() => undefined);
+      editLockedPetIdRef.current = currentPet.id;
+    }
+  }, [mode, showAdvanced, state?.activePetId, state?.pets]);
 
   useEffect(
     () => () => {
-      if (!renderConfigDirtyRef.current) return;
-      const shouldSave = window.confirm(
-        "高级设置有未保存的改动，是否保存后离开此页面？"
-      );
-      const currentState = stateRef.current;
-      const currentPet = petRef.current;
-      const draft = draftRenderConfigRef.current;
-      if (shouldSave && currentState && currentPet && draft) {
-        window.deskPet.updateStateSync({
-          pets: currentState.pets.map((item) =>
-            item.id === currentPet.id
-              ? {
-                  ...item,
-                  renderConfig: withRenderConfigDefaults(draft),
-                  desktopRenderConfig: withRenderConfigDefaults(draft)
-                }
-              : item
-          )
-        });
+      advancedPointerCleanupRef.current?.();
+      const pendingDraft = draftPersistenceRef.current;
+      if (pendingDraft) {
+        writeAdvancedRenderDraft(pendingDraft.petId, pendingDraft.draft);
+      }
+      const lockedPetId = editLockedPetIdRef.current;
+      if (lockedPetId) {
+        void window.deskPet
+          .overlayCommand({
+            type: "edit-lock",
+            petId: lockedPetId,
+            locked: false
+          } as never)
+          .catch(() => undefined);
       }
     },
     []
@@ -240,6 +291,18 @@ export function WorkshopView() {
       pet.autoVoiceEnabled ?? pet.autoDialogueEnabled ?? true;
   const activeRenderConfig: PetRenderConfig =
     draftRenderConfig || withRenderConfigDefaults(pet.renderConfig);
+
+  function restoreAdvancedRenderDraft(
+    petId: string,
+    savedConfig?: Partial<PetRenderConfig> | null
+  ) {
+    const restoredDraft = readAdvancedRenderDraft(petId);
+    draftOwnerPetIdRef.current = petId;
+    setDraftRenderConfig(
+      restoredDraft || withRenderConfigDefaults(savedConfig)
+    );
+    setRenderConfigDirty(restoredDraft !== null);
+  }
 
   async function savePet(nextPet: PetProfile) {
     const originalName = nextPet.name;
@@ -310,21 +373,13 @@ export function WorkshopView() {
     }
     const pets = currentState.pets.filter((item) => item.id !== pet.id);
     await updateState({ pets, activePetId: pets[0].id });
+    clearAdvancedRenderDraft(pet.id);
     setMode("edit");
   }
 
   async function startCreate() {
-    if (renderConfigDirty) {
-      const shouldSave = window.confirm(
-        "高级设置有未保存的改动，是否保存后再新增桌宠？"
-      );
-      if (shouldSave) {
-        await commitRenderConfig();
-      } else {
-        setDraftRenderConfig(withRenderConfigDefaults(pet.renderConfig));
-        setRenderConfigDirty(false);
-      }
-    }
+    if (!(await resolveUnsavedRenderConfig())) return;
+    clearAdvancedRenderDraft(pet.id);
     setMode("create");
     setDraftId(makeId("spine-draft"));
     setDraftParts({});
@@ -502,6 +557,7 @@ export function WorkshopView() {
   }
 
   function saveRenderConfig(patch: Partial<NonNullable<PetProfile["renderConfig"]>>) {
+    draftOwnerPetIdRef.current = pet.id;
     setDraftRenderConfig((current) => ({
       ...withRenderConfigDefaults(current || pet.renderConfig),
       ...patch
@@ -519,17 +575,40 @@ export function WorkshopView() {
       renderConfig: nextRenderConfig,
       desktopRenderConfig: nextRenderConfig
     });
+    draftOwnerPetIdRef.current = pet.id;
+    setDraftRenderConfig(nextRenderConfig);
     setRenderConfigDirty(false);
+    clearAdvancedRenderDraft(pet.id);
+  }
+
+  async function resolveUnsavedRenderConfig() {
+    if (!renderConfigDirty) return true;
+    const shouldSave = window.confirm(
+      "高级设置有未保存的改动。\n\n点击“确定”保存并继续；点击“取消”后再选择是否放弃。"
+    );
+    if (shouldSave) {
+      await commitRenderConfig();
+      return true;
+    }
+    const shouldDiscard = window.confirm(
+      "是否放弃本次高级设置改动？\n\n点击“确定”放弃；点击“取消”留在当前角色继续编辑。"
+    );
+    if (!shouldDiscard) return false;
+    draftOwnerPetIdRef.current = pet.id;
+    setDraftRenderConfig(withRenderConfigDefaults(pet.renderConfig));
+    setRenderConfigDirty(false);
+    clearAdvancedRenderDraft(pet.id);
+    return true;
   }
 
   async function toggleAdvancedSettings() {
     if (!showAdvanced) {
+      restoreAdvancedRenderDraft(pet.id, pet.renderConfig);
       setShowAdvanced(true);
       return;
     }
-    if (renderConfigDirty) {
-      await commitRenderConfig();
-    }
+    if (!(await resolveUnsavedRenderConfig())) return;
+    clearAdvancedRenderDraft(pet.id);
     setShowAdvanced(false);
   }
 
@@ -547,60 +626,182 @@ export function WorkshopView() {
     );
   }
 
+  function beginAdvancedPointerSession(
+    event: React.PointerEvent,
+    getPatch: (dx: number, dy: number) => Partial<PetRenderConfig>,
+    lockPreviewBase = false
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    advancedPointerCleanupRef.current?.();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const captureTarget = event.currentTarget as HTMLElement;
+    const pointerId = event.pointerId;
+    const startDraft = withRenderConfigDefaults(activeRenderConfig);
+    const savedDraft = withRenderConfigDefaults(pet.renderConfig);
+    draftOwnerPetIdRef.current = pet.id;
+    const lockedPreviewBase = lockPreviewBase
+      ? getAdvancedPreviewScale(startDraft)
+      : null;
+    if (lockedPreviewBase !== null) {
+      setAdvancedPreviewBaseScaleLock(lockedPreviewBase);
+    }
+    const previewScale =
+      (lockedPreviewBase ?? getAdvancedPreviewScale(startDraft)) *
+      advancedPreviewZoom;
+    let frame: number | null = null;
+    let pendingPoint: { x: number; y: number } | null = null;
+    let captureActive = false;
+    let previewBaseLockActive = lockedPreviewBase !== null;
+
+    const applyPendingPoint = () => {
+      frame = null;
+      if (!pendingPoint) return;
+      const dx = (pendingPoint.x - startX) / previewScale;
+      const dy = (pendingPoint.y - startY) / previewScale;
+      pendingPoint = null;
+      setDraftRenderConfig({
+        ...startDraft,
+        ...getPatch(dx, dy)
+      });
+      setRenderConfigDirty(true);
+    };
+
+    const detach = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
+      window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("keydown", handleKeyDown);
+      captureTarget.removeEventListener(
+        "lostpointercapture",
+        handleLostPointerCapture
+      );
+      if (captureActive) {
+        captureActive = false;
+        try {
+          if (captureTarget.hasPointerCapture(pointerId)) {
+            captureTarget.releasePointerCapture(pointerId);
+          }
+        } catch {
+          // Pointer capture can already be gone when the window loses focus.
+        }
+      }
+      if (frame !== null) cancelAnimationFrame(frame);
+      frame = null;
+      if (previewBaseLockActive) {
+        previewBaseLockActive = false;
+        setAdvancedPreviewBaseScaleLock(null);
+      }
+      if (advancedPointerCleanupRef.current === detach) {
+        advancedPointerCleanupRef.current = null;
+      }
+    };
+
+    const cancel = () => {
+      detach();
+      setDraftRenderConfig(startDraft);
+      setRenderConfigDirty(!hasSameRenderConfig(startDraft, savedDraft));
+    };
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) return;
+      if (moveEvent.buttons === 0) {
+        pendingPoint = { x: moveEvent.clientX, y: moveEvent.clientY };
+        if (pendingPoint) applyPendingPoint();
+        detach();
+        return;
+      }
+      moveEvent.preventDefault();
+      pendingPoint = { x: moveEvent.clientX, y: moveEvent.clientY };
+      if (frame === null) frame = requestAnimationFrame(applyPendingPoint);
+    };
+
+    const handlePointerUp = (upEvent: PointerEvent) => {
+      if (upEvent.pointerId !== pointerId) return;
+      if (pendingPoint) applyPendingPoint();
+      detach();
+    };
+
+    const handlePointerCancel = (cancelEvent: PointerEvent) => {
+      if (cancelEvent.pointerId !== pointerId) return;
+      cancel();
+    };
+
+    const handleLostPointerCapture = (lostEvent: PointerEvent) => {
+      if (lostEvent.pointerId !== pointerId) return;
+      cancel();
+    };
+
+    const handleBlur = () => cancel();
+
+    const handleKeyDown = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key !== "Escape") return;
+      keyEvent.preventDefault();
+      cancel();
+    };
+
+    try {
+      captureTarget.setPointerCapture(pointerId);
+      captureActive = true;
+    } catch {
+      // Window-level listeners still keep dragging usable without capture.
+    }
+
+    advancedPointerCleanupRef.current = detach;
+    if (captureActive) {
+      captureTarget.addEventListener(
+        "lostpointercapture",
+        handleLostPointerCapture
+      );
+    }
+    window.addEventListener("pointermove", handleMove, { passive: false });
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
+    window.addEventListener("blur", handleBlur);
+    window.addEventListener("keydown", handleKeyDown);
+  }
+
   function beginAdvancedDrag(
     event: React.PointerEvent,
     kind: "display" | "hitbox" | "hitboxMove" | "model"
   ) {
-    event.preventDefault();
-    event.stopPropagation();
-    const startX = event.clientX;
-    const startY = event.clientY;
     const start = withRenderConfigDefaults(activeRenderConfig);
-    const previewScale = getAdvancedPreviewScale(start);
-      const objectScale = previewScale * advancedPreviewZoom;
-
-    const handleMove = (moveEvent: PointerEvent) => {
-        const frameDx = (moveEvent.clientX - startX) / previewScale;
-        const frameDy = (moveEvent.clientY - startY) / previewScale;
-        const objectDx = (moveEvent.clientX - startX) / objectScale;
-        const objectDy = (moveEvent.clientY - startY) / objectScale;
+    beginAdvancedPointerSession(event, (dx, dy) => {
       if (kind === "display") {
-        saveRenderConfig({
+        return {
           displayWidth: Math.max(
             60,
-              Math.round((start.displayWidth || 260) + frameDx)
+            Math.round((start.displayWidth || 260) + dx)
           ),
           displayHeight: Math.max(
             80,
-              Math.round((start.displayHeight || 320) + frameDy)
+            Math.round((start.displayHeight || 320) + dy)
           )
-        });
+        };
       } else if (kind === "hitbox") {
-        saveRenderConfig({
-            hitboxWidth: Math.max(30, Math.round(start.hitboxWidth + objectDx)),
-            hitboxHeight: Math.max(
-              40,
-              Math.round(start.hitboxHeight + objectDy)
-            )
-        });
+        return {
+          hitboxWidth: Math.max(30, Math.round(start.hitboxWidth + dx)),
+          hitboxHeight: Math.max(40, Math.round(start.hitboxHeight + dy))
+        };
       } else if (kind === "hitboxMove") {
-        saveRenderConfig({
-            hitboxOffsetX: Math.round(start.hitboxOffsetX + objectDx),
-            hitboxOffsetY: Math.round(start.hitboxOffsetY + objectDy)
-        });
-      } else {
-        saveRenderConfig({
-            offsetX: Math.round(start.offsetX + objectDx),
-            offsetY: Math.round(start.offsetY + objectDy)
-        });
+        return {
+          hitboxOffsetX: Math.round(start.hitboxOffsetX + dx),
+          hitboxOffsetY: Math.round(start.hitboxOffsetY + dy)
+        };
       }
-    };
-    const handleUp = () => {
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", handleUp);
-    };
-    window.addEventListener("pointermove", handleMove);
-    window.addEventListener("pointerup", handleUp);
+      const nextOffsetX = Math.round(start.offsetX + dx);
+      const nextOffsetY = Math.round(start.offsetY + dy);
+      const deltaX = nextOffsetX - start.offsetX;
+      const deltaY = nextOffsetY - start.offsetY;
+      return {
+        offsetX: nextOffsetX,
+        offsetY: nextOffsetY,
+        hitboxOffsetX: Math.round(start.hitboxOffsetX + deltaX),
+        hitboxOffsetY: Math.round(start.hitboxOffsetY + deltaY)
+      };
+    }, kind === "display");
   }
 
   function beginAdvancedResize(
@@ -608,32 +809,19 @@ export function WorkshopView() {
     mode: "display" | "hitbox",
     edge: AdvancedResizeEdge
   ) {
-    event.preventDefault();
-    event.stopPropagation();
-    const startX = event.clientX;
-    const startY = event.clientY;
     const start = withRenderConfigDefaults(activeRenderConfig);
-    const previewScale = getAdvancedPreviewScale(start);
-      const objectScale = previewScale * advancedPreviewZoom;
     const handlesLeft = edge.includes("w");
     const handlesRight = edge.includes("e");
     const handlesTop = edge.includes("n");
     const handlesBottom = edge.includes("s");
 
-    const handleMove = (moveEvent: PointerEvent) => {
-        const dx = Math.round(
-          (moveEvent.clientX - startX) /
-            (mode === "display" ? previewScale : objectScale)
-        );
-        const dy = Math.round(
-          (moveEvent.clientY - startY) /
-            (mode === "display" ? previewScale : objectScale)
-        );
+    beginAdvancedPointerSession(event, (rawDx, rawDy) => {
+      const dx = Math.round(rawDx);
+      const dy = Math.round(rawDy);
       const widthDelta = (handlesRight ? dx : 0) - (handlesLeft ? dx : 0);
       const heightDelta = (handlesBottom ? dy : 0) - (handlesTop ? dy : 0);
 
       if (mode === "hitbox") {
-        const visual = getVisualSize(start);
         const hitboxWidth = Math.max(20, Math.round(start.hitboxWidth + widthDelta));
         const hitboxHeight = Math.max(
           30,
@@ -641,37 +829,32 @@ export function WorkshopView() {
         );
         const actualWidthDelta = hitboxWidth - start.hitboxWidth;
         const actualHeightDelta = hitboxHeight - start.hitboxHeight;
-        saveRenderConfig({
+        return {
           hitboxWidth,
           hitboxHeight,
           hitboxOffsetX: handlesLeft
-            ? Math.round(start.hitboxOffsetX - actualWidthDelta)
-            : start.hitboxOffsetX,
+            ? Math.round(start.hitboxOffsetX - actualWidthDelta / 2)
+            : handlesRight
+              ? Math.round(start.hitboxOffsetX + actualWidthDelta / 2)
+              : start.hitboxOffsetX,
           hitboxOffsetY: handlesTop
-            ? Math.round(start.hitboxOffsetY - actualHeightDelta)
-            : start.hitboxOffsetY,
-          visualWidth: visual.visualWidth,
-          visualHeight: visual.visualHeight
-        });
-      } else {
-        saveRenderConfig({
-          displayWidth: Math.max(
-            60,
-            Math.round((start.displayWidth || 260) + widthDelta)
-          ),
-          displayHeight: Math.max(
-            80,
-            Math.round((start.displayHeight || 320) + heightDelta)
-          )
-        });
+            ? Math.round(start.hitboxOffsetY - actualHeightDelta / 2)
+            : handlesBottom
+              ? Math.round(start.hitboxOffsetY + actualHeightDelta / 2)
+              : start.hitboxOffsetY
+        };
       }
-    };
-    const handleUp = () => {
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", handleUp);
-    };
-    window.addEventListener("pointermove", handleMove);
-    window.addEventListener("pointerup", handleUp);
+      return {
+        displayWidth: Math.max(
+          60,
+          Math.round((start.displayWidth || 260) + widthDelta * 2)
+        ),
+        displayHeight: Math.max(
+          80,
+          Math.round((start.displayHeight || 320) + heightDelta * 2)
+        )
+      };
+    }, mode === "display");
   }
 
   const canCreate =
@@ -681,23 +864,29 @@ export function WorkshopView() {
     draftDiagnostics?.status !== "invalid";
     const rawDisplayWidth = activeRenderConfig.displayWidth || 260;
     const rawDisplayHeight = activeRenderConfig.displayHeight || 320;
-    // 高级设置里把整块画面框缩放到舞台内，保证四边边框始终可见。
-    const advancedScale = getAdvancedPreviewScale(activeRenderConfig);
-  // 画面框（画布）只由 displayWidth/displayHeight 决定，改它不再影响角色大小
+    // 预览倍率必须作用于整套几何，避免画面框、角色和碰撞框比例不一致。
+    const advancedPreviewBaseScale =
+      advancedPreviewBaseScaleLock ?? getAdvancedPreviewScale(activeRenderConfig);
+    const advancedScale = advancedPreviewBaseScale * advancedPreviewZoom;
     const advancedDisplayWidth = rawDisplayWidth * advancedScale;
     const advancedDisplayHeight = rawDisplayHeight * advancedScale;
-    const advancedObjectScale = advancedScale * advancedPreviewZoom;
-  // 角色自己的渲染尺寸仍由 visualWidth/visualHeight 决定
-  const advancedVisualWidth =
-      (activeRenderConfig.visualWidth || 104) * advancedObjectScale;
-  const advancedVisualHeight =
-      (activeRenderConfig.visualHeight || 134) * advancedObjectScale;
-  const advancedHitboxWidth =
-    activeRenderConfig.hitboxWidth * advancedObjectScale;
-  const advancedHitboxHeight =
-    activeRenderConfig.hitboxHeight * advancedObjectScale;
-  const advancedCenterX = stageSize.width / 2;
-  const advancedCenterY = stageSize.height / 2;
+    const advancedVisualWidth =
+      (activeRenderConfig.visualWidth || 104) * advancedScale;
+    const advancedVisualHeight =
+      (activeRenderConfig.visualHeight || 134) * advancedScale;
+    const advancedHitboxWidth = activeRenderConfig.hitboxWidth * advancedScale;
+    const advancedHitboxHeight =
+      activeRenderConfig.hitboxHeight * advancedScale;
+    const advancedCenterX = stageSize.width / 2;
+    const advancedCenterY = stageSize.height / 2;
+    const advancedHitboxPosition = getHitboxPosition({
+      displayWidth: advancedDisplayWidth,
+      displayHeight: advancedDisplayHeight,
+      hitboxWidth: advancedHitboxWidth,
+      hitboxHeight: advancedHitboxHeight,
+      hitboxOffsetX: activeRenderConfig.hitboxOffsetX * advancedScale,
+      hitboxOffsetY: activeRenderConfig.hitboxOffsetY * advancedScale
+    });
 
   return (
     <div className="workshop-layout">
@@ -717,20 +906,10 @@ export function WorkshopView() {
               key={item.id}
               type="button"
               onClick={async () => {
-                if (item.id !== pet.id && renderConfigDirty) {
-                  const shouldSave = window.confirm(
-                    "高级设置有未保存的改动，是否保存后再切换角色？"
-                  );
-                  if (shouldSave) {
-                    await commitRenderConfig();
-                  } else {
-                    setDraftRenderConfig(
-                      withRenderConfigDefaults(pet.renderConfig)
-                    );
-                    setRenderConfigDirty(false);
-                  }
-                }
+                if (item.id === pet.id) return;
+                if (!(await resolveUnsavedRenderConfig())) return;
                 await updateState({ activePetId: item.id });
+                clearAdvancedRenderDraft(pet.id);
                 setMode("edit");
                 setShowAdvanced(false);
               }}
@@ -796,7 +975,7 @@ export function WorkshopView() {
                   visibility: "visible"
                 }}
                 onClick={() =>
-                  showAdvanced ? commitRenderConfig() : savePet(pet)
+                  renderConfigDirty ? commitRenderConfig() : savePet(pet)
                 }
               >
                 <Save size={16} />
@@ -843,7 +1022,7 @@ export function WorkshopView() {
             <SpinePet
               skelUrl={pet.spine.skelUrl}
               state="idle"
-              fitRatio={showAdvanced ? 1 : 0.6}
+              fitRatio={showAdvanced ? 1 : 0.72}
               maxFPS={30}
               deferMountMs={160}
               fitWidth={
@@ -860,12 +1039,12 @@ export function WorkshopView() {
               displayHeight={showAdvanced ? advancedDisplayHeight : undefined}
               offsetX={
                 showAdvanced
-                  ? activeRenderConfig.offsetX * advancedObjectScale
+                  ? activeRenderConfig.offsetX * advancedScale
                   : -28 + activeRenderConfig.offsetX
               }
               offsetY={
                 showAdvanced
-                  ? activeRenderConfig.offsetY * advancedObjectScale
+                  ? activeRenderConfig.offsetY * advancedScale
                   : activeRenderConfig.offsetY
               }
               anchorBottom={false}
@@ -945,12 +1124,12 @@ export function WorkshopView() {
                   style={{
                     left:
                       advancedCenterX -
-                      advancedHitboxWidth / 2 +
-                      activeRenderConfig.hitboxOffsetX * advancedObjectScale,
+                      advancedDisplayWidth / 2 +
+                      advancedHitboxPosition.left,
                     top:
                       advancedCenterY -
-                      advancedHitboxHeight / 2 +
-                      activeRenderConfig.hitboxOffsetY * advancedObjectScale,
+                      advancedDisplayHeight / 2 +
+                      advancedHitboxPosition.top,
                     width: advancedHitboxWidth,
                     height: advancedHitboxHeight
                   }}
@@ -1065,7 +1244,7 @@ export function WorkshopView() {
                         setAdvancedPreviewZoom(Number(event.target.value))
                       }
                     />
-                    <strong>{advancedPreviewZoom.toFixed(1)}x</strong>
+                    <strong>{advancedPreviewZoom.toFixed(2)}x</strong>
                   </label>
                 <div className="advanced-slider-grid">
                   {advancedMode === "position" && (
@@ -1078,11 +1257,16 @@ export function WorkshopView() {
                           max="200"
                           step="2"
                           value={activeRenderConfig.offsetX}
-                          onChange={(event) =>
+                          onChange={(event) => {
+                            const offsetX = Number(event.target.value);
+                            const delta = offsetX - activeRenderConfig.offsetX;
                             saveRenderConfig({
-                              offsetX: Number(event.target.value)
-                            })
-                          }
+                              offsetX,
+                              hitboxOffsetX: Math.round(
+                                activeRenderConfig.hitboxOffsetX + delta
+                              )
+                            });
+                          }}
                         />
                         <strong>{activeRenderConfig.offsetX}</strong>
                       </label>
@@ -1094,11 +1278,16 @@ export function WorkshopView() {
                           max="200"
                           step="2"
                           value={activeRenderConfig.offsetY}
-                          onChange={(event) =>
+                          onChange={(event) => {
+                            const offsetY = Number(event.target.value);
+                            const delta = offsetY - activeRenderConfig.offsetY;
                             saveRenderConfig({
-                              offsetY: Number(event.target.value)
-                            })
-                          }
+                              offsetY,
+                              hitboxOffsetY: Math.round(
+                                activeRenderConfig.hitboxOffsetY + delta
+                              )
+                            });
+                          }}
                         />
                         <strong>{activeRenderConfig.offsetY}</strong>
                       </label>
@@ -1792,11 +1981,18 @@ export function WorkshopView() {
                   max="200"
                   step="2"
                   value={pet.renderConfig?.offsetX || 0}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const offsetX = Number(event.target.value);
+                    const currentOffsetX = pet.renderConfig?.offsetX || 0;
                     saveRenderConfig({
-                      offsetX: Number(event.target.value)
-                    })
-                  }
+                      offsetX,
+                      hitboxOffsetX: Math.round(
+                        (pet.renderConfig?.hitboxOffsetX || 0) +
+                          offsetX -
+                          currentOffsetX
+                      )
+                    });
+                  }}
                 />
                 <strong>{pet.renderConfig?.offsetX || 0}</strong>
               </label>
@@ -1808,11 +2004,18 @@ export function WorkshopView() {
                   max="200"
                   step="2"
                   value={pet.renderConfig?.offsetY || 0}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const offsetY = Number(event.target.value);
+                    const currentOffsetY = pet.renderConfig?.offsetY || 0;
                     saveRenderConfig({
-                      offsetY: Number(event.target.value)
-                    })
-                  }
+                      offsetY,
+                      hitboxOffsetY: Math.round(
+                        (pet.renderConfig?.hitboxOffsetY || 0) +
+                          offsetY -
+                          currentOffsetY
+                      )
+                    });
+                  }}
                 />
                 <strong>{pet.renderConfig?.offsetY || 0}</strong>
               </label>
@@ -1828,7 +2031,9 @@ export function WorkshopView() {
                     hitboxWidth: 104,
                     hitboxHeight: 134,
                     offsetX: 0,
-                    offsetY: 0
+                    offsetY: 0,
+                    hitboxOffsetX: 0,
+                    hitboxOffsetY: 0
                   })
                 }
               >

@@ -1,15 +1,17 @@
 import { MessageCircle, Mic, Moon, Power, Puzzle, Send, X } from "lucide-react";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type MutableRefObject,
   type PointerEvent as ReactPointerEvent
 } from "react";
+import { createPortal } from "react-dom";
 import { clamp } from "../lib/format";
 import { makeId } from "../lib/id";
-import { getVisualSize } from "../lib/renderConfig";
+import { getHitboxPosition, getVisualSize } from "../lib/renderConfig";
 import { chooseBoundAnimation } from "../lib/spineActions";
 import { resolveDialogModule } from "../lib/dialogModules";
 import { decayModuleMetrics, readModuleMetric } from "../lib/moduleMetrics";
@@ -23,6 +25,8 @@ import type {
   AppSettings,
   AppState,
   DisplayMetrics,
+  PetInputPayload,
+  PetInteractionRegion,
   PetProfile
 } from "../types";
 import { PetAvatar } from "./PetAvatar";
@@ -55,6 +59,8 @@ type EntitySnapshot = {
 type PhysicsState = EntitySnapshot & {
   dragging: boolean;
   grounded: boolean;
+  visualOffsetX: number;
+  visualOffsetY: number;
   dragOffsetX: number;
   dragOffsetY: number;
   lastPointerX: number;
@@ -129,10 +135,145 @@ function nextAutoTalkDelayMs(initiative: number) {
   return base + Math.random() * 120000;
 }
 
+function isMeaningfulDialogueText(value: string) {
+  return value.replace(
+    /[\s，。！？、；：,.!?;:…"'“”‘’—\-（）()【】\[\]《》<>/\\|]+/g,
+    ""
+  ).length > 0;
+}
+
 let overlayMouseIgnoreState: boolean | null = null;
 let overlayDragging = false;
 const autoRecallPending = new Set<string>();
 const globalAutoTalkGate = { busy: false, cooldownUntil: 0 };
+
+type PanelClaim = {
+  petId: string;
+  mouse: boolean;
+  focus: boolean;
+  suppressPetInput: boolean;
+};
+
+type PanelPosition = {
+  left: number;
+  top: number;
+};
+
+const panelClaims = new Map<string, PanelClaim>();
+const suppressedPanelClaims = new Map<string, number>();
+const menuOwnerSubscribers = new Set<(petId: string) => void>();
+let activeMenuOwner = "";
+let panelZCounter = 1000;
+
+function nextPanelZIndex() {
+  panelZCounter += 1;
+  return panelZCounter;
+}
+
+function syncPanelClaims() {
+  const focusable = Array.from(panelClaims.values()).some(
+    (claim) => claim.focus
+  );
+  const ignoreMouse = !Array.from(panelClaims.values()).some(
+    (claim) => claim.mouse
+  );
+  window.deskPet.setOverlayFocusable(focusable);
+  overlayMouseIgnoreState = null;
+  applyOverlayMouseIgnore(ignoreMouse);
+}
+
+function setSuppressedPanelPet(petId: string, suppressed: boolean) {
+  const current = suppressedPanelClaims.get(petId) || 0;
+  const next = Math.max(0, current + (suppressed ? 1 : -1));
+  if (next === 0) suppressedPanelClaims.delete(petId);
+  else suppressedPanelClaims.set(petId, next);
+
+  const setter = (
+    window.deskPet as typeof window.deskPet & {
+      setPetInputSuppressed?: (id: string, value: boolean) => void;
+    }
+  ).setPetInputSuppressed;
+  if (typeof setter === "function") {
+    setter(petId, next > 0);
+  }
+}
+
+function claimPanel(token: string, claim: PanelClaim) {
+  if (panelClaims.has(token)) return;
+  panelClaims.set(token, claim);
+  if (claim.suppressPetInput) setSuppressedPanelPet(claim.petId, true);
+  syncPanelClaims();
+}
+
+function releasePanel(token: string) {
+  const claim = panelClaims.get(token);
+  if (!claim) return;
+  panelClaims.delete(token);
+  if (claim.suppressPetInput) setSuppressedPanelPet(claim.petId, false);
+  syncPanelClaims();
+}
+
+function publishMenuOwner(petId: string) {
+  activeMenuOwner = petId;
+  for (const subscriber of Array.from(menuOwnerSubscribers)) {
+    subscriber(petId);
+  }
+}
+
+function clearMenuOwner(petId: string) {
+  if (activeMenuOwner !== petId) return;
+  activeMenuOwner = "";
+  for (const subscriber of Array.from(menuOwnerSubscribers)) {
+    subscriber("");
+  }
+}
+
+function subscribeMenuOwner(callback: (petId: string) => void) {
+  menuOwnerSubscribers.add(callback);
+  return () => menuOwnerSubscribers.delete(callback);
+}
+
+function clampPanelPosition(
+  left: number,
+  top: number,
+  width: number,
+  height: number
+): PanelPosition {
+  return {
+    left: clamp(left, 8, Math.max(8, window.innerWidth - width - 8)),
+    top: clamp(top, 8, Math.max(8, window.innerHeight - height - 8))
+  };
+}
+
+function positionAboveDisplay(
+  entity: Pick<EntitySnapshot, "x" | "y" | "width">,
+  width: number,
+  height: number
+) {
+  return clampPanelPosition(
+    entity.x + entity.width / 2 - width / 2,
+    entity.y - height - 12,
+    width,
+    height
+  );
+}
+
+function positionBesideDisplay(
+  entity: Pick<EntitySnapshot, "x" | "y" | "width" | "height">,
+  width: number,
+  height: number
+) {
+  const right = entity.x + entity.width + 10;
+  const left = entity.x - width - 10;
+  const preferredLeft =
+    right + width <= window.innerWidth - 8 ? right : left;
+  return clampPanelPosition(
+    preferredLeft,
+    entity.y + entity.height / 2 - height / 2,
+    width,
+    height
+  );
+}
 
 function applyOverlayMouseIgnore(ignore: boolean) {
   if (overlayMouseIgnoreState === ignore) return;
@@ -140,64 +281,21 @@ function applyOverlayMouseIgnore(ignore: boolean) {
   window.deskPet.setOverlayMouseIgnore(ignore);
 }
 
-function getHitboxPosition(
-  entity: Pick<
-    EntitySnapshot,
-    "width" | "height" | "hitboxOffsetX" | "hitboxOffsetY"
-  >,
-  displayWidth: number,
-  displayHeight: number,
-  direction: 1 | -1
-) {
-  const horizontalOffset =
-    direction < 0 ? -entity.hitboxOffsetX : entity.hitboxOffsetX;
-  return {
-    left:
-      displayWidth / 2 - entity.width / 2 + horizontalOffset,
-    top:
-      displayHeight / 2 - entity.height / 2 + entity.hitboxOffsetY
-  };
+function isPetInputDown(type: PetInputPayload["type"]) {
+  return type === "down" || type === "pointerdown";
 }
 
-function shouldIgnoreOverlayMouse(
-  registry: Map<string, EntitySnapshot>,
-  clientX: number,
-  clientY: number
-) {
-  const target = document.elementFromPoint(clientX, clientY);
-  const interactive = Boolean(
-    target?.closest(
-      ".pet-chat-bubble, .pet-voice-indicator, .overlay-menu, .multi-pet-hitbox"
-    )
+function isPetInputMove(type: PetInputPayload["type"]) {
+  return type === "move" || type === "pointermove";
+}
+
+function isPetInputEnd(type: PetInputPayload["type"]) {
+  return (
+    type === "up" ||
+    type === "cancel" ||
+    type === "pointerup" ||
+    type === "pointercancel"
   );
-  const hit = Array.from(registry.values()).some((entity) => {
-    const hitboxPosition = getHitboxPosition(
-      entity,
-      entity.displayWidth,
-      entity.displayHeight,
-      entity.direction
-    );
-    const hostLeft = entity.x - hitboxPosition.left;
-    const hitboxWorldLeft = hostLeft + hitboxPosition.left;
-    const hostTop = entity.y - hitboxPosition.top;
-    const hitboxWorldTop = hostTop + hitboxPosition.top;
-    const inHitbox =
-      clientX >= hitboxWorldLeft &&
-      clientX <= hitboxWorldLeft + entity.width &&
-      clientY >= hitboxWorldTop &&
-      clientY <= hitboxWorldTop + entity.height;
-    const inMenu =
-      entity.menu &&
-      clientX >= entity.menu.x &&
-      clientX <= entity.menu.x + entity.menu.width &&
-      clientY >= entity.menu.y &&
-      clientY <= entity.menu.y + entity.menu.height;
-    return Boolean(inHitbox || inMenu);
-  });
-  const anyMenuOpen = Array.from(registry.values()).some((entity) =>
-    Boolean(entity.menu)
-  );
-  return !(hit || anyMenuOpen || interactive);
 }
 
 function withModuleMetrics(state: AppState, now = Date.now()) {
@@ -329,24 +427,28 @@ export function MultiPetOverlay() {
   const iconSignatureRef = useRef("");
 
   useEffect(() => {
-    function handleMouseMove(event: MouseEvent) {
-        if (overlayDragging) return;
-      applyOverlayMouseIgnore(
-        shouldIgnoreOverlayMouse(
-          registry.current,
-          event.clientX,
-          event.clientY
-        )
-      );
-    }
-    function handleMouseLeave() {
-      applyOverlayMouseIgnore(true);
-    }
-    window.addEventListener("mousemove", handleMouseMove, { passive: true });
-    window.addEventListener("mouseleave", handleMouseLeave);
+    const reportRegions = () => {
+      if (typeof window.deskPet.reportPetRegions !== "function") return;
+      const regions: PetInteractionRegion[] = Array.from(
+        registry.current.values()
+      ).map((entity) => ({
+        petId: entity.id,
+        x: entity.x,
+        y: entity.y,
+        width: entity.width,
+        height: entity.height,
+        visible: !suppressedPanelClaims.has(entity.id)
+      }));
+      window.deskPet.reportPetRegions(regions);
+    };
+
+    reportRegions();
+    const timer = window.setInterval(reportRegions, 66);
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseleave", handleMouseLeave);
+      window.clearInterval(timer);
+      if (typeof window.deskPet.reportPetRegions === "function") {
+        window.deskPet.reportPetRegions([]);
+      }
     };
   }, []);
 
@@ -571,7 +673,9 @@ function MultiPetEntity({
   const visualRef = useRef<HTMLDivElement | null>(null);
   const hitboxRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const menuCloseTimer = useRef<number | null>(null);
+  const textBubbleRef = useRef<HTMLElement | null>(null);
+  const autoBubbleRef = useRef<HTMLElement | null>(null);
+  const voiceIndicatorRef = useRef<HTMLDivElement | null>(null);
   const dragDistanceRef = useRef(0);
   const dragVisualReadyAtRef = useRef(0);
   const dragSessionRef = useRef<DragSession | null>(null);
@@ -591,6 +695,7 @@ function MultiPetEntity({
     source: "pointer" as DragMoveSource
   });
   const syncDragPositionRef = useRef<() => void>(() => undefined);
+  const freezeMovementRef = useRef(false);
   const [visualState, setVisualState] = useState<
     "idle" | "walk" | "fall" | "land" | "drag" | "sleep"
   >("idle");
@@ -600,7 +705,24 @@ function MultiPetEntity({
   >("idle");
   const directionRef = useRef<1 | -1>(1);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [editLocked, setEditLocked] = useState(false);
   const [textChatOpen, setTextChatOpen] = useState(false);
+  const [externalChatOpen, setExternalChatOpen] = useState(false);
+  const [panelZ, setPanelZ] = useState(() => nextPanelZIndex());
+  const [menuPosition, setMenuPosition] = useState<PanelPosition>({
+    left: 8,
+    top: 8
+  });
+  const [textBubblePosition, setTextBubblePosition] = useState<PanelPosition>({
+    left: 8,
+    top: 8
+  });
+  const [autoBubblePosition, setAutoBubblePosition] = useState<PanelPosition>({
+    left: 8,
+    top: 8
+  });
+  const [voiceIndicatorPosition, setVoiceIndicatorPosition] =
+    useState<PanelPosition>({ left: 8, top: 8 });
   const [voicePhase, setVoicePhase] = useState<
     "idle" | "recording" | "transcribing" | "thinking" | "speaking"
   >("idle");
@@ -657,9 +779,15 @@ function MultiPetEntity({
     since: performance.now()
   });
   const styleCacheRef = useRef({
+    petId: "",
     width: -1,
     height: -1,
     zIndex: -1,
+    hostLeft: Number.NaN,
+    hostTop: Number.NaN,
+    entityX: Number.NaN,
+    entityY: Number.NaN,
+    collisionSignature: "",
     hitboxLeft: Number.NaN,
     hitboxTop: Number.NaN,
     hitboxWidth: Number.NaN,
@@ -718,6 +846,10 @@ function MultiPetEntity({
     setDirection(next);
   }
 
+  function promotePanel() {
+    setPanelZ(nextPanelZIndex());
+  }
+
   async function triggerClimbPlatform() {
     if (!climbModule) return null;
     const requestAt = performance.now();
@@ -769,6 +901,7 @@ function MultiPetEntity({
     const [autoVoiceAudioSrc, setAutoVoiceAudioSrc] = useState("");
     const autoReplyBusyRef = useRef(false);
     const autoReplyTimerRef = useRef<number | null>(null);
+    const autoReplyDismissTimerRef = useRef<number | null>(null);
     const autoReplyRequestRef = useRef(0);
     const autoTalkAtRef = useRef(0);
     const autoVoiceEnabledRef = useRef(autoVoiceEnabled);
@@ -779,6 +912,179 @@ function MultiPetEntity({
     const height = (desktopRenderConfig?.hitboxHeight || BASE_HEIGHT) * scale;
   const displayWidth = (desktopRenderConfig?.displayWidth || 260) * scale;
   const displayHeight = (desktopRenderConfig?.displayHeight || 320) * scale;
+
+  useEffect(() => {
+    const unsubscribe = subscribeMenuOwner((ownerPetId) => {
+      if (ownerPetId !== pet.id) setMenuOpen(false);
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [pet.id]);
+
+  useEffect(() => {
+    freezeMovementRef.current =
+      editLocked ||
+      menuOpen ||
+      textChatOpen ||
+      externalChatOpen ||
+      voiceChatOpen ||
+      autoReplyOpen;
+  }, [
+    editLocked,
+    menuOpen,
+    textChatOpen,
+    externalChatOpen,
+    voiceChatOpen,
+    autoReplyOpen
+  ]);
+
+  useEffect(() => {
+    if (typeof window.deskPet.onPetChatState !== "function") return;
+    return window.deskPet.onPetChatState(({ petId: ownerPetId, open }) => {
+      if (ownerPetId !== pet.id) return;
+      if (open) {
+        setMenuOpen(false);
+        setTextChatOpen(false);
+        closeVoiceChat();
+        stopAutoReply();
+        setVoiceAudioSrc("");
+        setPanelZ(nextPanelZIndex());
+      }
+      setExternalChatOpen(open);
+    });
+  }, [pet.id]);
+
+  useEffect(() => {
+    const token = `${pet.id}:menu`;
+    if (!menuOpen) {
+      clearMenuOwner(pet.id);
+      return;
+    }
+    publishMenuOwner(pet.id);
+    setPanelZ(nextPanelZIndex());
+    claimPanel(token, {
+      petId: pet.id,
+      mouse: true,
+      focus: false,
+      suppressPetInput: true
+    });
+    return () => {
+      releasePanel(token);
+      clearMenuOwner(pet.id);
+    };
+  }, [menuOpen, pet.id]);
+
+  useEffect(() => {
+    const token = `${pet.id}:text-chat`;
+    if (!textChatOpen) return;
+    setPanelZ(nextPanelZIndex());
+    claimPanel(token, {
+      petId: pet.id,
+      mouse: true,
+      focus: true,
+      suppressPetInput: true
+    });
+    return () => releasePanel(token);
+  }, [pet.id, textChatOpen]);
+
+  useEffect(() => {
+    const token = `${pet.id}:voice-chat`;
+    if (!voiceChatOpen) return;
+    claimPanel(token, {
+      petId: pet.id,
+      mouse: true,
+      focus: false,
+      suppressPetInput: true
+    });
+    return () => releasePanel(token);
+  }, [pet.id, voiceChatOpen]);
+
+  useEffect(() => {
+    const token = `${pet.id}:auto-reply`;
+    if (!autoReplyOpen) return;
+    claimPanel(token, {
+      petId: pet.id,
+      mouse: true,
+      focus: false,
+      suppressPetInput: true
+    });
+    return () => releasePanel(token);
+  }, [autoReplyOpen, pet.id]);
+
+  useLayoutEffect(() => {
+    if (!menuOpen) return;
+    const element = menuRef.current;
+    if (!element) return;
+    const next = positionBesideDisplay(
+      getPanelAnchorRect(),
+      element.offsetWidth || 178,
+      element.offsetHeight || 120
+    );
+    setMenuPosition(next);
+  }, [menuOpen, panelZ]);
+
+  useLayoutEffect(() => {
+    if (!textChatOpen) return;
+    const element = textBubbleRef.current;
+    if (!element) return;
+    const next = positionAboveDisplay(
+      getPanelAnchorRect(),
+      element.offsetWidth || 300,
+      element.offsetHeight || 240
+    );
+    setTextBubblePosition(next);
+  }, [textChatOpen, panelZ]);
+
+  useEffect(() => {
+    if (!autoReplyOpen) return;
+    const update = () => {
+      const element = autoBubbleRef.current;
+      if (!element) return;
+      const next = positionAboveDisplay(
+        getPanelAnchorRect(),
+        element.offsetWidth || 300,
+        element.offsetHeight || 120
+      );
+      setAutoBubblePosition((current) =>
+        current.left === next.left && current.top === next.top
+          ? current
+          : next
+      );
+    };
+    update();
+    const timer = window.setInterval(update, 175);
+    window.addEventListener("resize", update);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("resize", update);
+    };
+  }, [autoReplyOpen]);
+
+  useEffect(() => {
+    if (!voiceChatOpen) return;
+    const update = () => {
+      const element = voiceIndicatorRef.current;
+      if (!element) return;
+      const next = positionAboveDisplay(
+        getPanelAnchorRect(),
+        element.offsetWidth || 280,
+        element.offsetHeight || 56
+      );
+      setVoiceIndicatorPosition((current) =>
+        current.left === next.left && current.top === next.top
+          ? current
+          : next
+      );
+    };
+    update();
+    const timer = window.setInterval(update, 175);
+    window.addEventListener("resize", update);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("resize", update);
+    };
+  }, [voiceChatOpen]);
 
     useEffect(() => {
       if (!canAutoTalk) {
@@ -795,6 +1101,7 @@ function MultiPetEntity({
         if (
           autoReplyBusyRef.current ||
           textChatOpen ||
+          externalChatOpen ||
           voiceChatOpen ||
           menuOpen ||
           voiceAudioSrc ||
@@ -819,6 +1126,7 @@ function MultiPetEntity({
       pet.modulePlugins?.voiceProfileId,
       pet.vitals?.initiative,
       textChatOpen,
+      externalChatOpen,
       voiceChatOpen,
       menuOpen,
       voiceAudioSrc,
@@ -848,6 +1156,9 @@ function MultiPetEntity({
       () => () => {
         if (autoReplyTimerRef.current !== null) {
           window.clearInterval(autoReplyTimerRef.current);
+        }
+        if (autoReplyDismissTimerRef.current !== null) {
+          window.clearTimeout(autoReplyDismissTimerRef.current);
         }
       },
       []
@@ -882,6 +1193,8 @@ function MultiPetEntity({
     zIndex: 10,
     dragging: false,
     grounded: true,
+    visualOffsetX: 0,
+    visualOffsetY: 0,
     dragOffsetX: 0,
     dragOffsetY: 0,
     lastPointerX: 0,
@@ -916,25 +1229,142 @@ function MultiPetEntity({
   const groundBounce =
     clamp(overlaySettings.groundBounce ?? 45, 0, 100) / 100;
 
+  function getPanelAnchorRect() {
+    const entity = physics.current;
+    const styleCache = styleCacheRef.current;
+    const hitboxPosition = getHitboxPosition({
+      displayWidth,
+      displayHeight,
+      hitboxWidth: entity.width,
+      hitboxHeight: entity.height,
+      hitboxOffsetX: entity.hitboxOffsetX,
+      hitboxOffsetY: entity.hitboxOffsetY,
+      direction: entity.direction
+    });
+    const hostLeft = Number.isFinite(styleCache.hostLeft)
+      ? styleCache.hostLeft
+      : entity.x - hitboxPosition.left;
+    const hostTop = Number.isFinite(styleCache.hostTop)
+      ? styleCache.hostTop
+      : entity.y - hitboxPosition.top;
+    const anchorWidth = Math.max(
+      1,
+      Math.min(displayWidth, visualWidth)
+    );
+    const anchorHeight = Math.max(
+      1,
+      Math.min(displayHeight, visualHeight)
+    );
+    const centerX =
+      hostLeft +
+      displayWidth / 2 +
+      (desktopRenderConfig?.offsetX || 0) * scale * entity.direction;
+    const centerY =
+      hostTop +
+      displayHeight / 2 +
+      (desktopRenderConfig?.offsetY || 0) * scale;
+    return {
+      x: centerX - anchorWidth / 2,
+      y: centerY - anchorHeight / 2,
+      width: anchorWidth,
+      height: anchorHeight
+    };
+  }
+
   function sync() {
     const entity = physics.current;
     const styleCache = styleCacheRef.current;
+    const nextHitboxOffsetX =
+      (desktopRenderConfig?.hitboxOffsetX || 0) * scale;
+    const nextHitboxOffsetY =
+      (desktopRenderConfig?.hitboxOffsetY || 0) * scale;
+    const nearlyEqual = (left: number, right: number) =>
+      Math.abs(left - right) < 0.001;
+    const displayUnchanged =
+      styleCache.petId === pet.id &&
+      nearlyEqual(styleCache.width, displayWidth) &&
+      nearlyEqual(styleCache.height, displayHeight);
+    const collisionSignature = [
+      width,
+      height,
+      nextHitboxOffsetX,
+      nextHitboxOffsetY,
+      entity.direction
+    ].join("|");
+    const collisionChanged =
+      styleCache.collisionSignature !== collisionSignature;
+    const keepVisualAnchor =
+      displayUnchanged &&
+      collisionChanged &&
+      Number.isFinite(styleCache.hostLeft) &&
+      Number.isFinite(styleCache.hostTop);
+    const entityDeltaX = Number.isFinite(styleCache.entityX)
+      ? entity.x - styleCache.entityX
+      : 0;
+    const entityDeltaY = Number.isFinite(styleCache.entityY)
+      ? entity.y - styleCache.entityY
+      : 0;
+    const targetHostLeft = styleCache.hostLeft + entityDeltaX;
+    const targetHostTop = styleCache.hostTop + entityDeltaY;
+    if (!displayUnchanged) {
+      entity.visualOffsetX = 0;
+      entity.visualOffsetY = 0;
+    }
     entity.width = width;
     entity.height = height;
     entity.displayWidth = displayWidth;
     entity.displayHeight = displayHeight;
-    entity.hitboxOffsetX =
-      (desktopRenderConfig?.hitboxOffsetX || 0) * scale;
-    entity.hitboxOffsetY =
-      (desktopRenderConfig?.hitboxOffsetY || 0) * scale;
-    const hitboxPosition = getHitboxPosition(
-      entity,
+    entity.hitboxOffsetX = nextHitboxOffsetX;
+    entity.hitboxOffsetY = nextHitboxOffsetY;
+    const hitboxPosition = getHitboxPosition({
       displayWidth,
       displayHeight,
-      entity.direction
-    );
-    const hostLeft = entity.x - hitboxPosition.left;
-    const hostTop = entity.y - hitboxPosition.top;
+      hitboxWidth: entity.width,
+      hitboxHeight: entity.height,
+      hitboxOffsetX: entity.hitboxOffsetX,
+      hitboxOffsetY: entity.hitboxOffsetY,
+      direction: entity.direction
+    });
+    if (keepVisualAnchor) {
+      // Re-anchor the collision rectangle without moving the visible host.
+      // The persistent visual offset keeps that anchor stable if physics clamps
+      // the hitbox at a wall or floor after edit mode unlocks.
+      entity.x = targetHostLeft + hitboxPosition.left;
+      entity.y = targetHostTop + hitboxPosition.top;
+      const leftLimit = bounds.left;
+      const rightLimit = Math.max(bounds.left, bounds.right - width);
+      if (entity.x < leftLimit || entity.x > rightLimit) {
+        entity.x = clamp(entity.x, leftLimit, rightLimit);
+        entity.vx = 0;
+      }
+      if (entity.grounded && entity.supportY !== null) {
+        entity.y = Math.min(bounds.floor, entity.supportY) - height;
+        entity.vy = 0;
+      } else if (entity.y + height >= bounds.floor) {
+        entity.y = bounds.floor - height;
+        entity.vy = 0;
+        entity.grounded = true;
+        entity.supportY = bounds.floor;
+        entity.supportLeft = bounds.left;
+        entity.supportRight = bounds.right;
+        entity.supportId = "floor";
+        entity.supportGraceUntil = 0;
+      }
+      entity.visualOffsetX =
+        targetHostLeft - (entity.x - hitboxPosition.left);
+      entity.visualOffsetY =
+        targetHostTop - (entity.y - hitboxPosition.top);
+    }
+    const hostLeft =
+      entity.x - hitboxPosition.left + entity.visualOffsetX;
+    const hostTop =
+      entity.y - hitboxPosition.top + entity.visualOffsetY;
+    styleCache.petId = pet.id;
+    styleCache.hostLeft = hostLeft;
+    styleCache.hostTop = hostTop;
+    styleCache.entityX = entity.x;
+    styleCache.entityY = entity.y;
+    styleCache.collisionSignature = collisionSignature;
     if (hostRef.current) {
       hostRef.current.style.transform = `translate3d(${hostLeft}px, ${hostTop}px, 0)`;
       if (styleCache.width !== displayWidth) {
@@ -968,31 +1398,7 @@ function MultiPetEntity({
         styleCache.hitboxHeight = entity.height;
       }
     }
-    if (menuRef.current && menuOpen) {
-      const menuWidth = menuRef.current.offsetWidth || 150;
-      const menuHeight = menuRef.current.offsetHeight || 90;
-      const rightX = entity.x + width + 10;
-      const leftX = entity.x - menuWidth - 10;
-      const x =
-        rightX + menuWidth < window.innerWidth - 8
-          ? rightX
-          : clamp(leftX, 8, window.innerWidth - menuWidth - 8);
-      const y = clamp(
-        entity.y + height / 2 - menuHeight / 2,
-        8,
-        window.innerHeight - menuHeight - 8
-      );
-      menuRef.current.style.left = `${x - hostLeft}px`;
-      menuRef.current.style.top = `${y - hostTop}px`;
-      entity.menu = {
-        x,
-        y,
-        width: menuWidth,
-        height: menuHeight
-      };
-    } else {
-      entity.menu = undefined;
-    }
+    entity.menu = undefined;
     const snapshot = registry.current.get(pet.id);
     if (snapshot) {
       Object.assign(snapshot, entity);
@@ -1002,16 +1408,6 @@ function MultiPetEntity({
   }
 
   syncDragPositionRef.current = sync;
-
-  function scheduleMenuClose() {
-    if (menuCloseTimer.current !== null) {
-      window.clearTimeout(menuCloseTimer.current);
-    }
-    menuCloseTimer.current = window.setTimeout(() => {
-      setMenuOpen(false);
-      menuCloseTimer.current = null;
-    }, 260);
-  }
 
   function queueJumpTo(
     entity: PhysicsState,
@@ -1602,6 +1998,15 @@ function MultiPetEntity({
       previous = now;
       const entity = physics.current;
 
+      if (freezeMovementRef.current && !entity.dragging) {
+        entity.vx = 0;
+        entity.vy = 0;
+        setEntityVisual("idle");
+        sync();
+        frame = requestAnimationFrame(tick);
+        return;
+      }
+
       if (entity.dragging) {
         if (now >= dragVisualReadyAtRef.current) {
           setEntityVisual("drag");
@@ -1958,6 +2363,50 @@ function MultiPetEntity({
   }, [pet.id, registry]);
 
   useEffect(() => {
+    if (typeof window.deskPet.onPetInput !== "function") return;
+    const unsubscribe = window.deskPet.onPetInput((payload) => {
+      if (payload.petId !== pet.id) return;
+      const x = Number(payload.x);
+      const y = Number(payload.y);
+      const type = payload.type;
+      const buttons =
+        typeof payload.buttons === "number" ? payload.buttons : 1;
+
+      if (isPetInputDown(type)) {
+        if (typeof payload.button === "number" && payload.button !== 0) {
+          return;
+        }
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        beginInteractionDrag(x, y);
+        return;
+      }
+
+      if (isPetInputMove(type)) {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        updateDragPositionRef.current(x, y, buttons, "global");
+        return;
+      }
+
+      if (isPetInputEnd(type)) {
+        finishDragRef.current();
+        return;
+      }
+
+      if (type === "contextmenu") {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        finishDragRef.current();
+        setMenuOpen(true);
+        return;
+      }
+
+      if (type === "dblclick") {
+        void window.deskPet.showControl();
+      }
+    });
+    return unsubscribe;
+  }, [pet.id, width, height]);
+
+  useEffect(() => {
     if (typeof window.deskPet.onGlobalDrag !== "function") return;
     const unsubscribe = window.deskPet.onGlobalDrag(({ x, y, buttons }) => {
       const session = dragSessionRef.current;
@@ -1991,6 +2440,7 @@ function MultiPetEntity({
       if (voicePhaseRef.current !== "idle") return;
         if (
           textChatOpen ||
+          externalChatOpen ||
           voiceChatOpen ||
           menuOpen ||
           autoReplyOpen ||
@@ -2014,6 +2464,7 @@ function MultiPetEntity({
       pet.voiceLines,
       autoVoiceEnabled,
       textChatOpen,
+      externalChatOpen,
       voiceChatOpen,
       menuOpen,
       autoReplyOpen,
@@ -2065,11 +2516,22 @@ function MultiPetEntity({
 
   useEffect(() => {
     const unsubscribe = window.deskPet.onOverlayCommand((command) => {
-      const commandPetId = "petId" in command ? command.petId : undefined;
+      const runtimeCommand = command as unknown as {
+        type: string;
+        petId?: string;
+        locked?: boolean;
+      };
+      const commandPetId = runtimeCommand.petId;
       if (commandPetId && commandPetId !== pet.id) return;
       const entity = physics.current;
       const now = performance.now();
-      if (command.type === "rest") {
+      if (runtimeCommand.type === "edit-lock") {
+        const locked = Boolean(runtimeCommand.locked);
+        setEditLocked(locked);
+        entity.vx = 0;
+        entity.vy = 0;
+        if (locked && !entity.dragging) setEntityVisual("idle");
+      } else if (command.type === "rest") {
         entity.vx = 0;
         entity.vy = 0;
         entity.grounded = true;
@@ -2243,7 +2705,7 @@ function MultiPetEntity({
         source: "pointer"
       };
       overlayDragging = false;
-      applyOverlayMouseIgnore(true);
+      syncPanelClaims();
       return;
     }
     const usedGlobalDrag = Boolean(session?.globalMode);
@@ -2262,7 +2724,7 @@ function MultiPetEntity({
       source: "pointer"
     };
     overlayDragging = false;
-    applyOverlayMouseIgnore(true);
+    syncPanelClaims();
     if (!entity.dragging) {
       dragDistanceRef.current = 0;
       return;
@@ -2319,6 +2781,51 @@ function MultiPetEntity({
   }
 
   finishDragRef.current = finishDrag;
+
+  function beginInteractionDrag(clientX: number, clientY: number) {
+    if (dragSessionRef.current) finishDragRef.current();
+    const entity = physics.current;
+    dragDistanceRef.current = 0;
+    entity.dragging = true;
+    entity.dragOffsetX = clientX - entity.x;
+    entity.dragOffsetY = clientY - entity.y;
+    entity.lastPointerX = clientX;
+    entity.lastPointerY = clientY;
+    const startedAt = performance.now();
+    entity.lastPointerAt = startedAt;
+    entity.vx = 0;
+    entity.vy = 0;
+    entity.restingUntil = 0;
+    climbChainActiveRef.current = false;
+    climbChainStepsRef.current = 0;
+    climbChainHeightRef.current = 0;
+    climbApproachTargetIdRef.current = "";
+    dragVisualReadyAtRef.current = startedAt + DRAG_VISUAL_DELAY_MS;
+    lastDragMoveRef.current = {
+      x: clientX,
+      y: clientY,
+      at: startedAt,
+      source: "global"
+    };
+    overlayDragging = true;
+    const captureElement = hitboxRef.current;
+    if (!captureElement) {
+      entity.dragging = false;
+      overlayDragging = false;
+      return;
+    }
+    dragSessionRef.current = {
+      pointerId: -1,
+      captureElement,
+      globalMode: false,
+      localListenersAttached: false,
+      pointerMove: () => undefined,
+      mouseMove: () => undefined,
+      pointerUp: () => undefined,
+      pointerCancel: () => undefined,
+      pointerLeave: () => undefined
+    };
+  }
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (dragSessionRef.current) finishDragRef.current();
@@ -2430,9 +2937,17 @@ function MultiPetEntity({
     }
   }
 
+  function clearAutoReplyDismissTimer() {
+    if (autoReplyDismissTimerRef.current !== null) {
+      window.clearTimeout(autoReplyDismissTimerRef.current);
+      autoReplyDismissTimerRef.current = null;
+    }
+  }
+
   function stopAutoReply() {
     autoReplyRequestRef.current += 1;
     clearAutoReplyTimer();
+    clearAutoReplyDismissTimer();
     autoReplyBusyRef.current = false;
     setAutoReplyBusy(false);
     setAutoReplyOpen(false);
@@ -2441,7 +2956,12 @@ function MultiPetEntity({
   }
 
   function showAutoReply(text: string, requestId: number) {
+    if (!isMeaningfulDialogueText(text)) {
+      stopAutoReply();
+      return;
+    }
     clearAutoReplyTimer();
+    clearAutoReplyDismissTimer();
     const characters = Array.from(text);
     let index = 0;
     setAutoReplyText("");
@@ -2458,6 +2978,10 @@ function MultiPetEntity({
           ...current,
           { id: makeId("chat"), role: "assistant", content: text }
         ]);
+        autoReplyDismissTimerRef.current = window.setTimeout(() => {
+          autoReplyDismissTimerRef.current = null;
+          stopAutoReply();
+        }, 8000);
       }
     }, 45);
   }
@@ -2474,6 +2998,7 @@ function MultiPetEntity({
     const requestId = autoReplyRequestRef.current + 1;
     autoReplyRequestRef.current = requestId;
     autoReplyBusyRef.current = true;
+    clearAutoReplyDismissTimer();
     setAutoReplyBusy(true);
     setAutoReplyOpen(true);
     setAutoReplyText("");
@@ -2492,7 +3017,7 @@ function MultiPetEntity({
       );
       if (autoReplyRequestRef.current !== requestId) return;
       const text = String(result?.text || "").trim();
-      if (!text) {
+      if (!isMeaningfulDialogueText(text)) {
         stopAutoReply();
         return;
       }
@@ -2680,7 +3205,6 @@ function MultiPetEntity({
     clearVoiceQueue();
     setVoicePhase("idle");
     setVoiceChatOpen(false);
-    if (!textChatOpen) window.deskPet.setOverlayFocusable(false);
   }
 
   async function handleBargeIn(stream: MediaStream) {
@@ -2920,11 +3444,11 @@ function MultiPetEntity({
         ref={hitboxRef}
         className="multi-pet-hitbox"
         data-pet-id={pet.id}
+        style={{ pointerEvents: "none" }}
         onPointerDown={onPointerDown}
         onDoubleClick={() => window.deskPet.showControl()}
         onContextMenu={(event) => {
           event.preventDefault();
-          window.deskPet.setOverlayMouseIgnore(false);
           setMenuOpen(true);
         }}
       />
@@ -2932,9 +3456,20 @@ function MultiPetEntity({
         <div className="pet-hunger-bubble pet-hunger-bubble--notice">
           {foodNotice}
         </div>
-      ) : (
-        voiceChatOpen && (
-          <div className="pet-voice-indicator">
+      ) : null}
+      {!foodNotice &&
+        voiceChatOpen &&
+        createPortal(
+          <div
+            ref={voiceIndicatorRef}
+            className="pet-voice-indicator pet-voice-indicator--portal"
+            style={{
+              left: voiceIndicatorPosition.left,
+              top: voiceIndicatorPosition.top,
+              zIndex: panelZ
+            }}
+            onPointerDown={promotePanel}
+          >
             <button
               type="button"
               disabled={isVoiceBusy}
@@ -2958,9 +3493,9 @@ function MultiPetEntity({
             >
               <X size={13} />
             </button>
-          </div>
-        )
-      )}
+          </div>,
+          document.body
+        )}
       {voiceAudioSrc && (
         <audio
           src={voiceAudioSrc}
@@ -2983,116 +3518,125 @@ function MultiPetEntity({
           onError={() => setAutoVoiceAudioSrc("")}
         />
       )}
-      {autoReplyOpen && (
-        <section
-          className="pet-chat-bubble pet-chat-bubble--auto"
-          style={{
-            background: dialogModule?.background || "#f7f5ef",
-            backgroundImage: dialogModule?.backgroundImageUrl
-              ? `url("${dialogModule.backgroundImageUrl}")`
-              : undefined,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            borderColor: dialogModule?.borderColor || "#d9d7d0",
-            borderRadius: dialogModule?.borderRadius ?? 8,
-            color: dialogModule?.textColor || "#172033",
-            fontFamily: dialogModule?.fontFamily || "Microsoft YaHei UI"
-          }}
-        >
-          <header>
-            <strong>{pet.name}</strong>
-            <button type="button" onClick={stopAutoReply}>
-              <X size={14} />
-            </button>
-          </header>
-          <div className="pet-chat-messages">
-            <div className="pet-chat-line pet-chat-line--assistant">
-              {autoReplyText || (autoReplyBusy ? "……" : "")}
+      {autoReplyOpen &&
+        createPortal(
+          <section
+            ref={autoBubbleRef}
+            className="pet-chat-bubble pet-chat-bubble--auto pet-chat-bubble--portal"
+            style={{
+              left: autoBubblePosition.left,
+              top: autoBubblePosition.top,
+              zIndex: panelZ,
+              background: dialogModule?.background || "#f7f5ef",
+              backgroundImage: dialogModule?.backgroundImageUrl
+                ? `url("${dialogModule.backgroundImageUrl}")`
+                : undefined,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              borderColor: dialogModule?.borderColor || "#d9d7d0",
+              borderRadius: dialogModule?.borderRadius ?? 8,
+              color: dialogModule?.textColor || "#172033",
+              fontFamily: dialogModule?.fontFamily || "Microsoft YaHei UI"
+            }}
+            onPointerDown={promotePanel}
+          >
+            <header>
+              <strong>{pet.name}</strong>
+              <button type="button" onClick={stopAutoReply}>
+                <X size={14} />
+              </button>
+            </header>
+            <div className="pet-chat-messages">
+              <div className="pet-chat-line pet-chat-line--assistant">
+                {autoReplyText || (autoReplyBusy ? "正在想..." : "")}
+              </div>
             </div>
-          </div>
-        </section>
-      )}
-      {textChatOpen && (
-        <section
-          className="pet-chat-bubble"
-          style={{
-            background: dialogModule?.background || "#f7f5ef",
-            backgroundImage: dialogModule?.backgroundImageUrl
-              ? `url("${dialogModule.backgroundImageUrl}")`
-              : undefined,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            borderColor: dialogModule?.borderColor || "#d9d7d0",
-            borderRadius: dialogModule?.borderRadius ?? 8,
-            color: dialogModule?.textColor || "#172033",
-            fontFamily:
-              dialogModule?.fontFamily || "Microsoft YaHei UI"
-          }}
-        >
-          <header>
-            <strong>{pet.name}</strong>
-            <button
-              type="button"
-              onClick={() => {
-                setTextChatOpen(false);
-                window.deskPet.setOverlayFocusable(false);
+          </section>,
+          document.body
+        )}
+      {textChatOpen &&
+        createPortal(
+          <section
+            ref={textBubbleRef}
+            className="pet-chat-bubble pet-chat-bubble--portal"
+            style={{
+              left: textBubblePosition.left,
+              top: textBubblePosition.top,
+              zIndex: panelZ,
+              background: dialogModule?.background || "#f7f5ef",
+              backgroundImage: dialogModule?.backgroundImageUrl
+                ? `url("${dialogModule.backgroundImageUrl}")`
+                : undefined,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              borderColor: dialogModule?.borderColor || "#d9d7d0",
+              borderRadius: dialogModule?.borderRadius ?? 8,
+              color: dialogModule?.textColor || "#172033",
+              fontFamily:
+                dialogModule?.fontFamily || "Microsoft YaHei UI"
+            }}
+            onPointerDown={promotePanel}
+          >
+            <header>
+              <strong>{pet.name}</strong>
+              <button type="button" onClick={() => setTextChatOpen(false)}>
+                <X size={14} />
+              </button>
+            </header>
+            <div className="pet-chat-messages">
+              {chatMessages.slice(-6).map((message) => (
+                <div
+                  className={`pet-chat-line pet-chat-line--${message.role}`}
+                  key={message.id}
+                  style={{
+                    backgroundImage:
+                      message.role === "user"
+                        ? dialogModule?.userBubbleImageUrl
+                          ? `url("${dialogModule.userBubbleImageUrl}")`
+                          : undefined
+                        : dialogModule?.assistantBubbleImageUrl
+                          ? `url("${dialogModule.assistantBubbleImageUrl}")`
+                          : undefined,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center"
+                  }}
+                >
+                  {message.content}
+                </div>
+              ))}
+              {chatMessages.length === 0 && <span>说点什么吧。</span>}
+            </div>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void sendChatMessage();
               }}
             >
-              <X size={14} />
-            </button>
-          </header>
-          <div className="pet-chat-messages">
-            {chatMessages.slice(-6).map((message) => (
-              <div
-                className={`pet-chat-line pet-chat-line--${message.role}`}
-                key={message.id}
-                style={{
-                  backgroundImage:
-                    message.role === "user"
-                      ? dialogModule?.userBubbleImageUrl
-                        ? `url("${dialogModule.userBubbleImageUrl}")`
-                        : undefined
-                      : dialogModule?.assistantBubbleImageUrl
-                        ? `url("${dialogModule.assistantBubbleImageUrl}")`
-                        : undefined,
-                  backgroundSize: "cover",
-                  backgroundPosition: "center"
-                }}
-              >
-                {message.content}
-              </div>
-            ))}
-            {chatMessages.length === 0 && (
-              <span>说点什么吧。</span>
-            )}
-          </div>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void sendChatMessage();
+              <input
+                value={chatDraft}
+                onChange={(event) => setChatDraft(event.target.value)}
+                onFocus={promotePanel}
+                placeholder="输入消息..."
+              />
+              <button type="submit" disabled={chatBusy || !chatDraft.trim()}>
+                <Send size={14} />
+              </button>
+            </form>
+          </section>,
+          document.body
+        )}
+      {menuOpen &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className="overlay-menu multi-pet-menu multi-pet-menu--portal"
+            style={{
+              left: menuPosition.left,
+              top: menuPosition.top,
+              zIndex: panelZ
             }}
+            onPointerDown={promotePanel}
           >
-            <input
-              value={chatDraft}
-              onChange={(event) => setChatDraft(event.target.value)}
-              placeholder="输入消息..."
-            />
-            <button type="submit" disabled={chatBusy || !chatDraft.trim()}>
-              <Send size={14} />
-            </button>
-          </form>
-        </section>
-      )}
-      {menuOpen && (
-        <div
-          ref={menuRef}
-          className="overlay-menu multi-pet-menu"
-          onMouseEnter={() => {
-            if (menuCloseTimer.current !== null) {
-              window.clearTimeout(menuCloseTimer.current);
-            }
-          }}
-        >
           <button
             className="close-menu-button"
             type="button"
@@ -3111,15 +3655,37 @@ function MultiPetEntity({
             <button
               type="button"
               onClick={() => {
-                  stopAutoReply();
-                  setVoiceAudioSrc("");
-                setTextChatOpen(true);
-                setVoiceChatOpen(false);
-                voiceSessionRef.current += 1;
-                if (voicePhase === "recording") stopVoiceChat();
-                setVoicePhase("idle");
-                window.deskPet.setOverlayFocusable(true);
+                stopAutoReply();
+                setVoiceAudioSrc("");
+                if (voiceChatOpen) closeVoiceChat();
                 setMenuOpen(false);
+                setTextChatOpen(false);
+                if (typeof window.deskPet.openChat !== "function") {
+                  window.alert("当前版本的聊天窗口接口尚未就绪。");
+                  return;
+                }
+                const anchor = {
+                  petId: pet.id,
+                  x: physics.current.x,
+                  y: physics.current.y,
+                  width: physics.current.width,
+                  height: physics.current.height,
+                  visible: true
+                };
+                setExternalChatOpen(true);
+                void window.deskPet
+                  .openChat("text", dialogModule?.id || "", anchor)
+                  .then((opened) => {
+                    if (!opened) {
+                      setExternalChatOpen(false);
+                      return;
+                    }
+                    setPanelZ(nextPanelZIndex());
+                  })
+                  .catch(() => {
+                    setExternalChatOpen(false);
+                    window.alert("完整文字对话窗口暂时无法打开。");
+                  });
               }}
             >
               <MessageCircle size={16} />
@@ -3139,7 +3705,6 @@ function MultiPetEntity({
                   stopAutoReply();
                   setVoiceAudioSrc("");
                 setTextChatOpen(false);
-                window.deskPet.setOverlayFocusable(false);
                 setVoiceChatOpen(true);
                 setVoicePhase("idle");
                 void window.deskPet.voiceAgent.warmup().catch(() => {});
@@ -3191,8 +3756,9 @@ function MultiPetEntity({
             <Power size={16} />
             收回并休眠
           </button>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

@@ -122,25 +122,27 @@ jobs:
             ArkPet ${{ steps.package.outputs.version }}
 
             【中文说明】
-            ArkPet 2.0.1 维护更新，Windows 与 macOS 安装包均已提供。
+            ArkPet 2.1.0 功能更新，Windows 与 macOS 安装包均已提供。
 
             主要变更：
-            - 修复点击或拖动桌宠时，其他软件画面停止刷新的问题；桌宠交互期间保持鼠标穿透，并通过全局拖动跟踪继续移动角色
-            - 修复桌宠实际点击区域与角色档案中的碰撞区域不同步，以及角色左右转身后碰撞框位置错误的问题
-            - 优化配置保存：连续操作合并写盘，状态更新耗时由约 30ms 降至约 1.3ms
-            - 优化管理窗口性能：角色预览限制为 30 帧，窗口隐藏后暂停渲染，降低软件使用过程中的卡顿
-            - 更新仓库地址、作者信息和自动更新目标为新 GitHub 账号 XHR-space
-            - 保持 2.0.0 的用户数据目录、发行种子和更新兼容性，不包含个人模型、API 密钥、声音样本或使用记录
+            - 重构桌宠桌面交互：点击、拖动和右键不再穿透或被全屏覆盖层截获，其他软件画面保持正常刷新
+            - 每只角色使用独立交互区域；右键菜单、自动文字气泡和语音提示按角色可见位置稳定显示
+            - 新增按角色独立的完整文字聊天页；右键“文字对话”打开普通窗口，自动文字继续使用紧凑气泡，聊天记录互不串用
+            - 高级设置改为复用 Spine/Pixi 画布；统一显示画面、角色和碰撞区域坐标，调整碰撞不再移动角色，调整角色位置会同步移动碰撞框
+            - 完善高级设置草稿、Esc 取消、切换角色保存/放弃/取消、未保存离开提醒和显式保存流程
+            - 修复聊天窗口加载失败或渲染进程退出时角色永久冻结的问题
+            - 保持 2.0.x 用户数据目录和更新兼容性；发行包不包含个人模型、API 密钥、声音样本或使用记录
 
             【English】
-            ArkPet 2.0.1 is a maintenance release. Windows and macOS installers are included.
+            ArkPet 2.1.0 is a feature update. Windows and macOS installers are included.
 
             Highlights:
-            - Fixed other applications freezing visually while the desktop pet is clicked or dragged; the overlay now remains mouse-transparent during interaction and uses global drag tracking to move the character
-            - Fixed the desktop interaction area not matching the configured collision box, including incorrect hitbox placement after turning left or right
-            - Optimized state persistence by coalescing writes; state updates now take about 1.3ms instead of about 30ms
-            - Improved management-window performance with a 30 FPS character preview and suspended rendering while the window is hidden
-            - Updated repository, author, and auto-update references to the new GitHub account XHR-space
-            - Preserved 2.0.0 user-data paths, release seed, and update compatibility; no personal models, API keys, voice samples, or usage history are included
+            - Reworked desktop interaction so clicks, drags, and context menus no longer pass through or get captured by the full-screen overlay; other applications keep refreshing normally
+            - Added an independent interaction region per character, with context menus, automatic text bubbles, and voice indicators anchored to the visible character
+            - Added a per-character full text chat window; context-menu text chat opens a normal window while automatic text keeps the compact bubble, with isolated chat histories
+            - Advanced settings now reuse the Spine/Pixi canvas; display frame, character, and hitbox coordinates are unified, collision edits no longer move the character, and position edits move the hitbox with it
+            - Added advanced-settings drafts, Escape cancellation, save/discard/cancel role switching, unsaved-exit protection, and explicit save flow
+            - Fixed characters remaining frozen when a chat window failed to load or its renderer exited
+            - Preserved 2.0.x user-data paths and update compatibility; release packages contain no personal models, API keys, voice samples, or usage history
           overwrite_files: true
           files: release-files/*

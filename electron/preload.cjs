@@ -93,13 +93,22 @@ contextBridge.exposeInMainWorld("deskPet", {
   setOverlayMouseIgnore: (ignore) => ipcRenderer.send("overlay:ignore-mouse", ignore),
   setOverlayFocusable: (focusable) =>
     ipcRenderer.send("overlay:set-focusable", focusable),
+  reportPetRegions: (regions) =>
+    ipcRenderer.send("overlay:pet-regions", regions),
+  onPetInput: (callback) => subscribe("overlay:pet-input", callback),
+  setPetInputSuppressed: (petId, suppressed) =>
+    ipcRenderer.send("overlay:pet-input-suppressed", { petId, suppressed }),
   beginGlobalDrag: () => ipcRenderer.invoke("overlay:global-drag-start"),
   endGlobalDrag: () => ipcRenderer.invoke("overlay:global-drag-end"),
   onGlobalDrag: (callback) => subscribe("overlay:global-drag", callback),
 
   openAuxiliary: (auxiliaryId) => ipcRenderer.invoke("auxiliary:open", auxiliaryId),
-  openChat: (mode, dialogModuleId) =>
-    ipcRenderer.invoke("chat:open", mode, dialogModuleId),
+  openChat: (mode, dialogModuleId, anchor) =>
+    ipcRenderer.invoke("chat:open", mode, dialogModuleId, anchor),
+  updateChatAnchor: (anchor) =>
+    ipcRenderer.send("chat:update-anchor", anchor),
+  openPetChat: (anchor) => ipcRenderer.invoke("pet-chat:open", anchor),
+  onPetChatState: (callback) => subscribe("overlay:pet-chat-state", callback),
   importExternalModule: () =>
     ipcRenderer.invoke("modules:import-folder"),
   importModuleArchive: () => ipcRenderer.invoke("modules:import-file"),
