@@ -306,26 +306,52 @@ export function SpinePet({
           boneMap: analyzeBoneMap(boneNames)
         });
 
-        const fitToHost = () => {
+        const positionSpineToHost = (
+          bounds: { x: number; y: number; width: number; height: number },
+          scale: number,
+          width: number,
+          height: number
+        ) => {
           const activeApplication = application;
           if (!activeApplication) return;
-          const {
-            fitWidth: nextFitWidth,
-            fitHeight: nextFitHeight,
-            fitRatio: nextFitRatio,
-            offsetX: nextOffsetX,
-            offsetY: nextOffsetY,
-            anchorBottom: nextAnchorBottom,
-            normalizeBodySize: nextNormalizeBodySize
-          } = layoutRef.current;
-          const width = Math.max(1, host.clientWidth);
-          const height = Math.max(1, host.clientHeight);
           if (
             activeApplication.renderer.screen.width !== width ||
             activeApplication.renderer.screen.height !== height
           ) {
             activeApplication.resize();
           }
+          const {
+            offsetX: currentOffsetX,
+            offsetY: currentOffsetY,
+            anchorBottom: currentAnchorBottom
+          } = layoutRef.current;
+          spine.scale.set(scale);
+          host.dataset.spineScale = scale.toFixed(4);
+          const x =
+            (width - bounds.width * scale) / 2 -
+            bounds.x * scale +
+            currentOffsetX;
+          const y = currentAnchorBottom
+            ? height -
+              2 -
+              (bounds.y + bounds.height) * scale +
+              currentOffsetY
+            : (height - bounds.height * scale) / 2 -
+              bounds.y * scale +
+              currentOffsetY;
+          spine.position.set(x, y);
+        };
+
+        const fitToHost = () => {
+          if (!application) return;
+          const {
+            fitWidth: nextFitWidth,
+            fitHeight: nextFitHeight,
+            fitRatio: nextFitRatio,
+            normalizeBodySize: nextNormalizeBodySize
+          } = layoutRef.current;
+          const width = Math.max(1, host.clientWidth);
+          const height = Math.max(1, host.clientHeight);
           const desiredWidth = nextFitWidth || width;
           const desiredHeight = nextFitHeight || height;
           const fitWidthKey = nextFitWidth ?? null;
@@ -392,21 +418,7 @@ export function SpinePet({
           const fitCache = fitCacheRef.current;
           if (!fitCache) return;
           const { bounds, scale } = fitCache;
-          spine.scale.set(scale);
-          host.dataset.spineScale = scale.toFixed(4);
-          const x =
-            (width - bounds.width * scale) / 2 -
-            bounds.x * scale +
-            nextOffsetX;
-          const y = nextAnchorBottom
-            ? height -
-              2 -
-              (bounds.y + bounds.height) * scale +
-              nextOffsetY
-            : (height - bounds.height * scale) / 2 -
-              bounds.y * scale +
-              nextOffsetY;
-          spine.position.set(x, y);
+          positionSpineToHost(bounds, scale, width, height);
         };
         fitToHostRef.current = fitToHost;
 
@@ -418,6 +430,7 @@ export function SpinePet({
           animationDurations
         );
         if (initialName) spine.state.setAnimation(0, initialName, true);
+        spine.update(0);
 
         fitToHost();
         fitFrame = requestAnimationFrame(fitToHost);
@@ -499,8 +512,7 @@ export function SpinePet({
     const spine = spineRef.current;
     spine.state.setAnimation(0, name, true);
     spine.update(0);
-    fitCacheRef.current = null;
-    fitToHostRef.current();
+    // Animation changes update playback only; layout is handled by the layout effect above.
   }, [ready, state, actionBindings, actionOverride]);
 
   useEffect(() => {

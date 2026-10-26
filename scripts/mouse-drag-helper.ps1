@@ -4,57 +4,69 @@ param(
 
 $mouseStateSource = @'
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 public static class MouseDragState
 {
     [DllImport("user32.dll")]
     public static extern short GetAsyncKeyState(int virtualKey);
+
+    [DllImport("winmm.dll")]
+    public static extern uint timeBeginPeriod(uint period);
+
+    [DllImport("winmm.dll")]
+    public static extern uint timeEndPeriod(uint period);
+
+    public static void Run(int parentPid)
+    {
+        timeBeginPeriod(1);
+        bool wasDown = false;
+        DateTime parentCheckAt = DateTime.UtcNow;
+        Console.Out.WriteLine("0");
+        Console.Out.Flush();
+        try
+        {
+            while (true)
+            {
+                DateTime now = DateTime.UtcNow;
+                if (parentPid > 0 && (now - parentCheckAt).TotalMilliseconds >= 500)
+                {
+                    parentCheckAt = now;
+                    try
+                    {
+                        using (Process.GetProcessById(parentPid)) { }
+                    }
+                    catch (ArgumentException)
+                    {
+                        break;
+                    }
+                }
+
+                bool isDown = (GetAsyncKeyState(0x01) & 0x8000) != 0;
+                if (isDown)
+                {
+                    Console.Out.WriteLine(wasDown ? "1" : "DOWN");
+                    Console.Out.Flush();
+                }
+                else if (wasDown)
+                {
+                    Console.Out.WriteLine("UP");
+                    Console.Out.Flush();
+                }
+
+                wasDown = isDown;
+                Thread.Sleep(isDown ? 4 : 48);
+            }
+        }
+        finally
+        {
+            timeEndPeriod(1);
+        }
+    }
 }
 '@
 
 Add-Type -TypeDefinition $mouseStateSource
-
-function Write-MouseState([string]$value) {
-    [Console]::Out.WriteLine($value)
-    [Console]::Out.Flush()
-}
-
-Write-MouseState "0"
-
-$wasDown = $false
-$parentCheckAt = [Environment]::TickCount
-
-while ($true) {
-    if ($ParentPid -gt 0) {
-        $now = [Environment]::TickCount
-        if (($now - $parentCheckAt) -ge 500) {
-            $parentCheckAt = $now
-            try {
-                $null = [System.Diagnostics.Process]::GetProcessById($ParentPid)
-            } catch {
-                break
-            }
-        }
-    }
-
-    $state = [MouseDragState]::GetAsyncKeyState(0x01)
-    $isDown = (($state -band 0x8000) -ne 0)
-
-    if ($isDown) {
-        if ($wasDown) {
-            Write-MouseState "1"
-        } else {
-            Write-MouseState "DOWN"
-        }
-    } elseif ($wasDown) {
-        Write-MouseState "UP"
-    }
-
-    $wasDown = $isDown
-    if ($isDown) {
-        Start-Sleep -Milliseconds 12
-    } else {
-        Start-Sleep -Milliseconds 48
-    }
-}
+[MouseDragState]::Run($ParentPid)

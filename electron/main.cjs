@@ -3476,16 +3476,46 @@ function buildTrainingDataset(profile) {
   return examples.map((item) => JSON.stringify(item)).join("\n");
 }
 
+function preserveAuthoritativeDesktopPositions(patch) {
+  if (!isPlainObject(patch) || !Array.isArray(patch.pets)) return patch;
+  const currentPets = store.get().pets;
+  const authoritativePets = new Map(
+    (Array.isArray(currentPets) ? currentPets : [])
+      .filter((pet) => isPlainObject(pet) && typeof pet.id === "string")
+      .map((pet) => [pet.id, pet])
+  );
+  let changed = false;
+  const pets = patch.pets.map((incomingPet) => {
+    if (
+      !isPlainObject(incomingPet) ||
+      typeof incomingPet.id !== "string" ||
+      !authoritativePets.has(incomingPet.id)
+    ) {
+      return incomingPet;
+    }
+    const currentPet = authoritativePets.get(incomingPet.id);
+    const nextPet = { ...incomingPet };
+    if (isPlainObject(currentPet.desktopPosition)) {
+      nextPet.desktopPosition = currentPet.desktopPosition;
+    } else {
+      delete nextPet.desktopPosition;
+    }
+    changed = true;
+    return nextPet;
+  });
+  return changed ? { ...patch, pets } : patch;
+}
+
 function registerIpc() {
   ipcMain.handle("store:get", () => store.get());
   ipcMain.handle("store:update", (_event, patch) => {
-    const state = store.update(patch);
+    const state = store.update(preserveAuthoritativeDesktopPositions(patch));
     broadcastState();
     applyOverlaySettings();
     return state;
   });
   ipcMain.on("store:update-sync", (event, patch) => {
-    const state = store.update(patch);
+    const state = store.update(preserveAuthoritativeDesktopPositions(patch));
     broadcastState();
     applyOverlaySettings();
     event.returnValue = state;
@@ -3513,6 +3543,24 @@ function registerIpc() {
           };
         }
         pet.moduleState = nextModuleState;
+      }
+      if (isPlainObject(patch?.desktopPosition)) {
+        const { x, y, direction } = patch.desktopPosition;
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          const nextPosition = {
+            x: Math.max(-1e6, Math.min(1e6, x)),
+            y: Math.max(-1e6, Math.min(1e6, y))
+          };
+          if (direction === 1 || direction === -1) {
+            nextPosition.direction = direction;
+          } else if (
+            pet.desktopPosition?.direction === 1 ||
+            pet.desktopPosition?.direction === -1
+          ) {
+            nextPosition.direction = pet.desktopPosition.direction;
+          }
+          pet.desktopPosition = nextPosition;
+        }
       }
       pet.updatedAt = new Date().toISOString();
     });

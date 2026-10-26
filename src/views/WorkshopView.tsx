@@ -771,13 +771,13 @@ export function WorkshopView() {
     beginAdvancedPointerSession(event, (dx, dy) => {
       if (kind === "display") {
         return {
-          displayWidth: Math.max(
-            60,
-            Math.round((start.displayWidth || 260) + dx)
+          visualWidth: Math.max(
+            40,
+            Math.round(start.visualWidth + dx)
           ),
-          displayHeight: Math.max(
-            80,
-            Math.round((start.displayHeight || 320) + dy)
+          visualHeight: Math.max(
+            60,
+            Math.round(start.visualHeight + dy)
           )
         };
       } else if (kind === "hitbox") {
@@ -791,15 +791,9 @@ export function WorkshopView() {
           hitboxOffsetY: Math.round(start.hitboxOffsetY + dy)
         };
       }
-      const nextOffsetX = Math.round(start.offsetX + dx);
-      const nextOffsetY = Math.round(start.offsetY + dy);
-      const deltaX = nextOffsetX - start.offsetX;
-      const deltaY = nextOffsetY - start.offsetY;
       return {
-        offsetX: nextOffsetX,
-        offsetY: nextOffsetY,
-        hitboxOffsetX: Math.round(start.hitboxOffsetX + deltaX),
-        hitboxOffsetY: Math.round(start.hitboxOffsetY + deltaY)
+        offsetX: Math.round(start.offsetX + dx),
+        offsetY: Math.round(start.offsetY + dy)
       };
     }, kind === "display");
   }
@@ -845,13 +839,13 @@ export function WorkshopView() {
         };
       }
       return {
-        displayWidth: Math.max(
-          60,
-          Math.round((start.displayWidth || 260) + widthDelta * 2)
+        visualWidth: Math.max(
+          40,
+          Math.round(start.visualWidth + widthDelta)
         ),
-        displayHeight: Math.max(
-          80,
-          Math.round((start.displayHeight || 320) + heightDelta * 2)
+        visualHeight: Math.max(
+          60,
+          Math.round(start.visualHeight + heightDelta)
         )
       };
     }, mode === "display");

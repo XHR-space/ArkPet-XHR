@@ -1,6 +1,6 @@
-# ArkPet 2.1.0 User Guide
+# ArkPet 2.2.0 User Guide
 
-Applies to: ArkPet 2.1.0  
+Applies to: ArkPet 2.2.0
 Document type: Standalone user guide, not part of the application UI
 
 This guide is written for both first-time users and advanced users who want to configure local AI, custom voice, and modules. Follow the basic workflow first, then continue into the AI, voice, and extension chapters as needed.
@@ -37,7 +37,7 @@ ArkPet is a local-first desktop character workspace. It separates desktop render
 
 - The visual overlay remains mouse-transparent. Only the actual character interaction region receives clicks and drags.
 - Context menus, automatic text bubbles, full text chat, and voice indicators are anchored to the visible character.
-- Full text chat opens in a normal window. It is not always-on-top and does not lock other applications.
+- Text chat opens as an inline panel above the character and does not create a separate chat window.
 
 ### 1.4 A gradual path from simple companion to local AI
 
@@ -55,12 +55,12 @@ ArkPet is a local-first desktop character workspace. It separates desktop render
 
 ### 2.1 First launch
 
-1. Run `ArkPet Setup 2.1.0.exe`.
+1. Run `ArkPet Setup 2.2.0.exe`.
 2. Launch ArkPet after installation.
 3. The app opens on **Home Overview** by default after a full restart.
 4. User data is stored under `data/user-data` in the software directory. App updates replace program files while preserving this folder.
 
-The portable edition can be started directly with `ArkPet Portable 2.1.0.exe`. Portable and installed editions keep data relative to their own program location.
+The portable edition can be started directly with `ArkPet Portable 2.2.0.exe`. Portable and installed editions keep data relative to their own program location.
 
 ### 2.2 Main navigation
 
@@ -99,7 +99,7 @@ The pet appears on the primary display and normally lands on the top edge of the
 
 The context menu can include:
 
-- **Text Chat**: open the full chat window for that specific pet.
+- **Text Chat**: open an inline text panel above that specific pet.
 - **Desktop Sleep**: keep the pet on the desktop but switch it to a sleeping state.
 - **Recall and Sleep**: remove it from the desktop.
 - Bound module entries, such as auxiliary windows, dialog skins, or climbing tools.
@@ -118,7 +118,7 @@ You can switch pets with the arrows or by swiping the character area. The page s
 Quick actions:
 
 - **Pet**: slightly increases relationship and initiative.
-- **Chat for a while**: opens the full text chat window for that pet.
+- **Chat for a while**: opens an inline text panel above that pet.
 - **Rest**: puts the pet into desktop sleep mode.
 
 ### 3.3 Automatic text and automatic voice

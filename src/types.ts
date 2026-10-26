@@ -132,6 +132,12 @@ export type PetVoiceLines = {
   clips: PetVoiceClip[];
 };
 
+export type PetDesktopPosition = {
+  x: number;
+  y: number;
+  direction?: 1 | -1;
+};
+
 export type PetProfile = {
   id: string;
   name: string;
@@ -163,6 +169,7 @@ export type PetProfile = {
   voiceLines?: PetVoiceLines;
   renderConfig?: PetRenderConfig;
   desktopRenderConfig?: PetRenderConfig;
+  desktopPosition?: PetDesktopPosition;
   createdAt: string;
   updatedAt: string;
 };
@@ -652,6 +659,7 @@ export type DeskPetApi = {
     patch: {
       vitals?: Partial<PetVitals>;
       moduleState?: Record<string, Record<string, PetModuleStateValue>>;
+      desktopPosition?: PetDesktopPosition;
     }
   ) => Promise<AppState>;
   importVoiceLines: (petId: string) => Promise<{

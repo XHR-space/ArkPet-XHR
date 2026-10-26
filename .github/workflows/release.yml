@@ -122,27 +122,25 @@ jobs:
             ArkPet ${{ steps.package.outputs.version }}
 
             【中文说明】
-            ArkPet 2.1.0 功能更新，Windows 与 macOS 安装包均已提供。
+            ArkPet 2.2.0 修复更新，Windows 与 macOS 安装包均已提供。
 
             主要变更：
-            - 重构桌宠桌面交互：点击、拖动和右键不再穿透或被全屏覆盖层截获，其他软件画面保持正常刷新
-            - 每只角色使用独立交互区域；右键菜单、自动文字气泡和语音提示按角色可见位置稳定显示
-            - 新增按角色独立的完整文字聊天页；右键“文字对话”打开普通窗口，自动文字继续使用紧凑气泡，聊天记录互不串用
-            - 高级设置改为复用 Spine/Pixi 画布；统一显示画面、角色和碰撞区域坐标，调整碰撞不再移动角色，调整角色位置会同步移动碰撞框
-            - 完善高级设置草稿、Esc 取消、切换角色保存/放弃/取消、未保存离开提醒和显式保存流程
-            - 修复聊天窗口加载失败或渲染进程退出时角色永久冻结的问题
-            - 保持 2.0.x 用户数据目录和更新兼容性；发行包不包含个人模型、API 密钥、声音样本或使用记录
+            - 修复高级设置中角色位置、显示画面和碰撞框的定位与保存问题，恢复稳定的桌面坐标链路
+            - 修复拖动后位置回弹、角色显示到屏幕或任务栏下方、慢速松手不受重力影响的问题
+            - 恢复稳定的拖动、抛掷、弹跳、落地与最终位置保存行为
+            - “文字对话”恢复为角色头顶的内联文字框，并调整到更靠近角色的位置；发送、流式回复、AI 和焦点功能保持不变
+            - 改进全局拖动捕获与退出清理，减少拖动中断和角色冻结
+            - 保持 2.1.x 用户数据目录和更新兼容性；发行包不包含个人模型、API 密钥、声音样本或使用记录
 
             【English】
-            ArkPet 2.1.0 is a feature update. Windows and macOS installers are included.
+            ArkPet 2.2.0 is a maintenance update. Windows and macOS installers are included.
 
             Highlights:
-            - Reworked desktop interaction so clicks, drags, and context menus no longer pass through or get captured by the full-screen overlay; other applications keep refreshing normally
-            - Added an independent interaction region per character, with context menus, automatic text bubbles, and voice indicators anchored to the visible character
-            - Added a per-character full text chat window; context-menu text chat opens a normal window while automatic text keeps the compact bubble, with isolated chat histories
-            - Advanced settings now reuse the Spine/Pixi canvas; display frame, character, and hitbox coordinates are unified, collision edits no longer move the character, and position edits move the hitbox with it
-            - Added advanced-settings drafts, Escape cancellation, save/discard/cancel role switching, unsaved-exit protection, and explicit save flow
-            - Fixed characters remaining frozen when a chat window failed to load or its renderer exited
-            - Preserved 2.0.x user-data paths and update compatibility; release packages contain no personal models, API keys, voice samples, or usage history
+            - Fixed character position, display frame, and hitbox positioning and persistence in advanced settings
+            - Fixed position snap-back, characters rendering below the desktop area, and slow drag releases ignoring gravity
+            - Restored reliable drag, throw, bounce, landing, and final-position persistence behavior
+            - Restored the inline text chat panel above the character and moved it closer; sending, streaming replies, AI, and focus behavior are unchanged
+            - Improved global drag capture and shutdown cleanup to reduce interrupted drags and frozen characters
+            - Preserved 2.1.x user-data paths and update compatibility; release packages contain no personal models, API keys, voice samples, or usage history
           overwrite_files: true
           files: release-files/*

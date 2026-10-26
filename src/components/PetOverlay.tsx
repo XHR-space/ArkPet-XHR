@@ -11,7 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import { clamp } from "../lib/format";
 import { makeId } from "../lib/id";
-import { getHitboxPosition, getVisualSize } from "../lib/renderConfig";
+import { getVisualSize } from "../lib/renderConfig";
 import { chooseBoundAnimation } from "../lib/spineActions";
 import { resolveDialogModule } from "../lib/dialogModules";
 import { decayModuleMetrics, readModuleMetric } from "../lib/moduleMetrics";
@@ -25,6 +25,7 @@ import type {
   AppSettings,
   AppState,
   DisplayMetrics,
+  PetDesktopPosition,
   PetInputPayload,
   PetInteractionRegion,
   PetProfile
@@ -59,8 +60,6 @@ type EntitySnapshot = {
 type PhysicsState = EntitySnapshot & {
   dragging: boolean;
   grounded: boolean;
-  visualOffsetX: number;
-  visualOffsetY: number;
   dragOffsetX: number;
   dragOffsetY: number;
   lastPointerX: number;
@@ -125,9 +124,19 @@ type EntityProps = {
   foodNotice?: string;
 };
 
+type DesktopPositionSource = Pick<
+  EntitySnapshot,
+  "x" | "y" | "direction"
+>;
+
 const BASE_WIDTH = 104;
 const BASE_HEIGHT = 134;
 const DRAG_VISUAL_DELAY_MS = 340;
+const DRAG_CLICK_DISTANCE_PX = 8;
+
+// Let the full pet config save land before patching the restored position.
+const POSITION_PERSIST_DEBOUNCE_MS = 200;
+const POSITION_PERSIST_RETRY_DELAY_MS = 500;
 
 function nextAutoTalkDelayMs(initiative: number) {
   const normalized = clamp(Number(initiative || 0), 0, 100) / 100;
@@ -140,6 +149,60 @@ function isMeaningfulDialogueText(value: string) {
     /[\s，。！？、；：,.!?;:…"'“”‘’—\-（）()【】\[\]《》<>/\\|]+/g,
     ""
   ).length > 0;
+}
+
+function hasValidDesktopPosition(
+  position?: PetDesktopPosition | null
+): position is PetDesktopPosition {
+  return Boolean(
+    position &&
+      Number.isFinite(position.x) &&
+      Number.isFinite(position.y)
+  );
+}
+
+function getEffectiveDesktopPosition(
+  entity: DesktopPositionSource
+): PetDesktopPosition | null {
+  const x = entity.x;
+  const y = entity.y;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const direction: 1 | -1 = entity.direction === -1 ? -1 : 1;
+  return { x: Math.round(x), y: Math.round(y), direction };
+}
+
+function desktopPositionKey(position: PetDesktopPosition) {
+  return `${Math.round(position.x)}:${Math.round(position.y)}:${
+    position.direction === -1 ? -1 : 1
+  }`;
+}
+
+function getStateDesktopPositionKey(
+  state: AppState | null,
+  petId: string
+) {
+  const position = state?.pets.find((pet) => pet.id === petId)
+    ?.desktopPosition;
+  return hasValidDesktopPosition(position)
+    ? desktopPositionKey(position)
+    : "";
+}
+
+async function persistEntityDesktopPosition(
+  petId: string,
+  entity: DesktopPositionSource,
+  constrainedPosition?: PetDesktopPosition
+): Promise<AppState | null> {
+  const position =
+    constrainedPosition ?? getEffectiveDesktopPosition(entity);
+  if (!position) return null;
+  try {
+    return await window.deskPet.applyPetPatch(petId, {
+      desktopPosition: position
+    });
+  } catch {
+    return null;
+  }
 }
 
 let overlayMouseIgnoreState: boolean | null = null;
@@ -161,9 +224,16 @@ type PanelPosition = {
 
 const panelClaims = new Map<string, PanelClaim>();
 const suppressedPanelClaims = new Map<string, number>();
+const petRegionRefreshListeners = new Set<() => void>();
 const menuOwnerSubscribers = new Set<(petId: string) => void>();
 let activeMenuOwner = "";
 let panelZCounter = 1000;
+
+function requestPetRegionRefresh() {
+  for (const refresh of Array.from(petRegionRefreshListeners)) {
+    refresh();
+  }
+}
 
 function nextPanelZIndex() {
   panelZCounter += 1;
@@ -433,8 +503,8 @@ export function MultiPetOverlay() {
         registry.current.values()
       ).map((entity) => ({
         petId: entity.id,
-        x: entity.x,
-        y: entity.y,
+        x: entity.x + entity.hitboxOffsetX,
+        y: entity.y + entity.hitboxOffsetY,
         width: entity.width,
         height: entity.height,
         visible: !suppressedPanelClaims.has(entity.id)
@@ -442,9 +512,11 @@ export function MultiPetOverlay() {
       window.deskPet.reportPetRegions(regions);
     };
 
+    petRegionRefreshListeners.add(reportRegions);
     reportRegions();
     const timer = window.setInterval(reportRegions, 66);
     return () => {
+      petRegionRefreshListeners.delete(reportRegions);
       window.clearInterval(timer);
       if (typeof window.deskPet.reportPetRegions === "function") {
         window.deskPet.reportPetRegions([]);
@@ -673,12 +745,27 @@ function MultiPetEntity({
   const visualRef = useRef<HTMLDivElement | null>(null);
   const hitboxRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const textBubbleRef = useRef<HTMLElement | null>(null);
   const autoBubbleRef = useRef<HTMLElement | null>(null);
   const voiceIndicatorRef = useRef<HTMLDivElement | null>(null);
   const dragDistanceRef = useRef(0);
   const dragVisualReadyAtRef = useRef(0);
   const dragSessionRef = useRef<DragSession | null>(null);
+  const dragPetInputSuppressedRef = useRef(false);
+  const dragGlobalWatchdogTimerRef = useRef<number | null>(null);
+  const initialDesktopPositionKey = hasValidDesktopPosition(
+    pet.desktopPosition
+  )
+    ? desktopPositionKey(pet.desktopPosition)
+    : "";
+  const persistedDesktopPositionRef = useRef(initialDesktopPositionKey);
+  const desiredDesktopPositionKeyRef = useRef(initialDesktopPositionKey);
+  const lastServerDesktopPositionKeyRef = useRef(
+    initialDesktopPositionKey
+  );
+  const positionPersistRequestIdRef = useRef(0);
+  const positionPersistRetryCountRef = useRef(0);
+  const positionPersistTimerRef = useRef<number | null>(null);
+  const repairedSavedPositionScheduledRef = useRef(false);
   const finishDragRef = useRef<(event?: PointerEvent) => void>(() => undefined);
   const updateDragPositionRef = useRef<
     (
@@ -694,26 +781,23 @@ function MultiPetEntity({
     at: 0,
     source: "pointer" as DragMoveSource
   });
-  const syncDragPositionRef = useRef<() => void>(() => undefined);
   const freezeMovementRef = useRef(false);
   const [visualState, setVisualState] = useState<
     "idle" | "walk" | "fall" | "land" | "drag" | "sleep"
   >("idle");
-  const [direction, setDirection] = useState<1 | -1>(1);
+  const initialDirection: 1 | -1 =
+    pet.desktopPosition?.direction === -1 ? -1 : 1;
+  const [direction, setDirection] = useState<1 | -1>(initialDirection);
   const visualStateRef = useRef<
     "idle" | "walk" | "fall" | "land" | "drag" | "sleep"
   >("idle");
-  const directionRef = useRef<1 | -1>(1);
+  const directionRef = useRef<1 | -1>(initialDirection);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editLocked, setEditLocked] = useState(false);
   const [textChatOpen, setTextChatOpen] = useState(false);
   const [externalChatOpen, setExternalChatOpen] = useState(false);
   const [panelZ, setPanelZ] = useState(() => nextPanelZIndex());
   const [menuPosition, setMenuPosition] = useState<PanelPosition>({
-    left: 8,
-    top: 8
-  });
-  const [textBubblePosition, setTextBubblePosition] = useState<PanelPosition>({
     left: 8,
     top: 8
   });
@@ -779,15 +863,9 @@ function MultiPetEntity({
     since: performance.now()
   });
   const styleCacheRef = useRef({
-    petId: "",
     width: -1,
     height: -1,
     zIndex: -1,
-    hostLeft: Number.NaN,
-    hostTop: Number.NaN,
-    entityX: Number.NaN,
-    entityY: Number.NaN,
-    collisionSignature: "",
     hitboxLeft: Number.NaN,
     hitboxTop: Number.NaN,
     hitboxWidth: Number.NaN,
@@ -844,6 +922,74 @@ function MultiPetEntity({
     if (directionRef.current === next) return;
     directionRef.current = next;
     setDirection(next);
+  }
+
+  function clearPositionPersistTimer() {
+    if (positionPersistTimerRef.current === null) return;
+    window.clearTimeout(positionPersistTimerRef.current);
+    positionPersistTimerRef.current = null;
+  }
+
+  async function persistDesktopPosition(
+    entity: PhysicsState,
+    isRetry = false
+  ) {
+    clearPositionPersistTimer();
+    const effectivePosition = getEffectiveDesktopPosition(entity);
+    if (!effectivePosition) return false;
+    const position: PetDesktopPosition = {
+      x: clamp(effectivePosition.x, bounds.left, maxPhysicsX),
+      y: clamp(effectivePosition.y, 0, maxPhysicsY),
+      direction: effectivePosition.direction
+    };
+    const key = desktopPositionKey(position);
+    if (!isRetry) positionPersistRetryCountRef.current = 0;
+    desiredDesktopPositionKeyRef.current = key;
+    if (
+      key === persistedDesktopPositionRef.current &&
+      key === lastServerDesktopPositionKeyRef.current
+    ) {
+      positionPersistRetryCountRef.current = 0;
+      return true;
+    }
+    const requestId = positionPersistRequestIdRef.current + 1;
+    positionPersistRequestIdRef.current = requestId;
+    const state = await persistEntityDesktopPosition(
+      pet.id,
+      entity,
+      position
+    );
+    if (requestId !== positionPersistRequestIdRef.current) return false;
+    const serverKey = getStateDesktopPositionKey(state, pet.id);
+    if (state) lastServerDesktopPositionKeyRef.current = serverKey;
+    if (serverKey === key) {
+      persistedDesktopPositionRef.current = key;
+      desiredDesktopPositionKeyRef.current = key;
+      positionPersistRetryCountRef.current = 0;
+      return true;
+    }
+    positionPersistRetryCountRef.current += 1;
+    if (!entity.dragging && positionPersistRetryCountRef.current <= 1) {
+      schedulePositionPersist(POSITION_PERSIST_RETRY_DELAY_MS, true);
+    }
+    return false;
+  }
+
+  function schedulePositionPersist(
+    delayMs = POSITION_PERSIST_DEBOUNCE_MS,
+    isRetry = false
+  ) {
+    clearPositionPersistTimer();
+    positionPersistTimerRef.current = window.setTimeout(() => {
+      positionPersistTimerRef.current = null;
+      void persistDesktopPosition(physics.current, isRetry);
+    }, delayMs);
+  }
+
+  function flushPendingPositionPersist() {
+    if (positionPersistTimerRef.current === null) return;
+    clearPositionPersistTimer();
+    void persistDesktopPosition(physics.current);
   }
 
   function promotePanel() {
@@ -910,8 +1056,6 @@ function MultiPetEntity({
     const scale = (overlaySettings.scale || 1) * (pet.scale || 1);
     const width = (desktopRenderConfig?.hitboxWidth || BASE_WIDTH) * scale;
     const height = (desktopRenderConfig?.hitboxHeight || BASE_HEIGHT) * scale;
-  const displayWidth = (desktopRenderConfig?.displayWidth || 260) * scale;
-  const displayHeight = (desktopRenderConfig?.displayHeight || 320) * scale;
 
   useEffect(() => {
     const unsubscribe = subscribeMenuOwner((ownerPetId) => {
@@ -1024,17 +1168,6 @@ function MultiPetEntity({
     setMenuPosition(next);
   }, [menuOpen, panelZ]);
 
-  useLayoutEffect(() => {
-    if (!textChatOpen) return;
-    const element = textBubbleRef.current;
-    if (!element) return;
-    const next = positionAboveDisplay(
-      getPanelAnchorRect(),
-      element.offsetWidth || 300,
-      element.offsetHeight || 240
-    );
-    setTextBubblePosition(next);
-  }, [textChatOpen, panelZ]);
 
   useEffect(() => {
     if (!autoReplyOpen) return;
@@ -1166,6 +1299,12 @@ function MultiPetEntity({
   const visual = getVisualSize(desktopRenderConfig);
   const visualWidth = visual.visualWidth * scale;
   const visualHeight = visual.visualHeight * scale;
+  const canvasWidth =
+    Math.max(desktopRenderConfig?.displayWidth || 260, visual.visualWidth) *
+    scale;
+  const canvasHeight =
+    Math.max(desktopRenderConfig?.displayHeight || 320, visual.visualHeight) *
+    scale;
   const bounds = useMemo(
     () => ({
       left: metrics.workArea.x - metrics.bounds.x,
@@ -1175,26 +1314,42 @@ function MultiPetEntity({
     }),
     [metrics]
   );
+  const savedDesktopPosition = hasValidDesktopPosition(pet.desktopPosition)
+    ? pet.desktopPosition
+    : null;
+  const maxPhysicsX = Math.max(bounds.left, bounds.right - width);
+  const maxPhysicsY = Math.max(0, bounds.floor - height);
+  const initialPhysicsX = savedDesktopPosition
+    ? clamp(savedDesktopPosition.x, bounds.left, maxPhysicsX)
+    : bounds.left + 80 + Math.random() * 180;
+  const initialPhysicsY = savedDesktopPosition
+    ? clamp(savedDesktopPosition.y, 0, maxPhysicsY)
+    : bounds.floor - height;
+  const savedPositionNeedsRepair = Boolean(
+    savedDesktopPosition &&
+      (savedDesktopPosition.x < bounds.left ||
+        savedDesktopPosition.x > maxPhysicsX ||
+        savedDesktopPosition.y < 0 ||
+        savedDesktopPosition.y > maxPhysicsY)
+  );
   const physics = useRef<PhysicsState>({
     id: pet.id,
-    x: bounds.left + 80 + Math.random() * 180,
-    y: bounds.floor - height,
+    x: initialPhysicsX,
+    y: initialPhysicsY,
     width,
     height,
-    displayWidth,
-    displayHeight,
+    displayWidth: canvasWidth,
+    displayHeight: canvasHeight,
     hitboxOffsetX: (desktopRenderConfig?.hitboxOffsetX || 0) * scale,
     hitboxOffsetY: (desktopRenderConfig?.hitboxOffsetY || 0) * scale,
     vx: 0,
     vy: 0,
-    direction: 1,
+    direction: initialDirection,
     directionY: -1,
     passUntil: 0,
     zIndex: 10,
     dragging: false,
     grounded: true,
-    visualOffsetX: 0,
-    visualOffsetY: 0,
     dragOffsetX: 0,
     dragOffsetY: 0,
     lastPointerX: 0,
@@ -1217,6 +1372,44 @@ function MultiPetEntity({
     pendingJumpVy: 0,
     fallbackRequested: false
   });
+
+  useEffect(() => {
+    if (
+      !savedPositionNeedsRepair ||
+      repairedSavedPositionScheduledRef.current
+    ) {
+      return;
+    }
+    repairedSavedPositionScheduledRef.current = true;
+    schedulePositionPersist();
+  }, [savedPositionNeedsRepair]);
+
+  useEffect(() => {
+    const serverKey = hasValidDesktopPosition(pet.desktopPosition)
+      ? desktopPositionKey(pet.desktopPosition)
+      : "";
+    const previousServerKey = lastServerDesktopPositionKeyRef.current;
+    lastServerDesktopPositionKeyRef.current = serverKey;
+    const desiredKey = desiredDesktopPositionKeyRef.current;
+    if (serverKey === desiredKey) {
+      if (serverKey) persistedDesktopPositionRef.current = serverKey;
+      positionPersistRetryCountRef.current = 0;
+      return;
+    }
+    if (
+      desiredKey &&
+      previousServerKey !== serverKey &&
+      !physics.current.dragging
+    ) {
+      positionPersistRetryCountRef.current = 0;
+      schedulePositionPersist();
+    }
+  }, [
+    pet.desktopPosition?.x,
+    pet.desktopPosition?.y,
+    pet.desktopPosition?.direction
+  ]);
+
   const configuredWalkSpeed = Number(overlaySettings.walkSpeed || 63);
   const effectiveWalkSpeed =
     63 * Math.pow(Math.max(1, configuredWalkSpeed) / 63, 1.35);
@@ -1231,43 +1424,11 @@ function MultiPetEntity({
 
   function getPanelAnchorRect() {
     const entity = physics.current;
-    const styleCache = styleCacheRef.current;
-    const hitboxPosition = getHitboxPosition({
-      displayWidth,
-      displayHeight,
-      hitboxWidth: entity.width,
-      hitboxHeight: entity.height,
-      hitboxOffsetX: entity.hitboxOffsetX,
-      hitboxOffsetY: entity.hitboxOffsetY,
-      direction: entity.direction
-    });
-    const hostLeft = Number.isFinite(styleCache.hostLeft)
-      ? styleCache.hostLeft
-      : entity.x - hitboxPosition.left;
-    const hostTop = Number.isFinite(styleCache.hostTop)
-      ? styleCache.hostTop
-      : entity.y - hitboxPosition.top;
-    const anchorWidth = Math.max(
-      1,
-      Math.min(displayWidth, visualWidth)
-    );
-    const anchorHeight = Math.max(
-      1,
-      Math.min(displayHeight, visualHeight)
-    );
-    const centerX =
-      hostLeft +
-      displayWidth / 2 +
-      (desktopRenderConfig?.offsetX || 0) * scale * entity.direction;
-    const centerY =
-      hostTop +
-      displayHeight / 2 +
-      (desktopRenderConfig?.offsetY || 0) * scale;
     return {
-      x: centerX - anchorWidth / 2,
-      y: centerY - anchorHeight / 2,
-      width: anchorWidth,
-      height: anchorHeight
+      x: entity.x,
+      y: entity.y,
+      width: entity.width,
+      height: entity.height
     };
   }
 
@@ -1278,102 +1439,20 @@ function MultiPetEntity({
       (desktopRenderConfig?.hitboxOffsetX || 0) * scale;
     const nextHitboxOffsetY =
       (desktopRenderConfig?.hitboxOffsetY || 0) * scale;
-    const nearlyEqual = (left: number, right: number) =>
-      Math.abs(left - right) < 0.001;
-    const displayUnchanged =
-      styleCache.petId === pet.id &&
-      nearlyEqual(styleCache.width, displayWidth) &&
-      nearlyEqual(styleCache.height, displayHeight);
-    const collisionSignature = [
-      width,
-      height,
-      nextHitboxOffsetX,
-      nextHitboxOffsetY,
-      entity.direction
-    ].join("|");
-    const collisionChanged =
-      styleCache.collisionSignature !== collisionSignature;
-    const keepVisualAnchor =
-      displayUnchanged &&
-      collisionChanged &&
-      Number.isFinite(styleCache.hostLeft) &&
-      Number.isFinite(styleCache.hostTop);
-    const entityDeltaX = Number.isFinite(styleCache.entityX)
-      ? entity.x - styleCache.entityX
-      : 0;
-    const entityDeltaY = Number.isFinite(styleCache.entityY)
-      ? entity.y - styleCache.entityY
-      : 0;
-    const targetHostLeft = styleCache.hostLeft + entityDeltaX;
-    const targetHostTop = styleCache.hostTop + entityDeltaY;
-    if (!displayUnchanged) {
-      entity.visualOffsetX = 0;
-      entity.visualOffsetY = 0;
-    }
     entity.width = width;
     entity.height = height;
-    entity.displayWidth = displayWidth;
-    entity.displayHeight = displayHeight;
     entity.hitboxOffsetX = nextHitboxOffsetX;
     entity.hitboxOffsetY = nextHitboxOffsetY;
-    const hitboxPosition = getHitboxPosition({
-      displayWidth,
-      displayHeight,
-      hitboxWidth: entity.width,
-      hitboxHeight: entity.height,
-      hitboxOffsetX: entity.hitboxOffsetX,
-      hitboxOffsetY: entity.hitboxOffsetY,
-      direction: entity.direction
-    });
-    if (keepVisualAnchor) {
-      // Re-anchor the collision rectangle without moving the visible host.
-      // The persistent visual offset keeps that anchor stable if physics clamps
-      // the hitbox at a wall or floor after edit mode unlocks.
-      entity.x = targetHostLeft + hitboxPosition.left;
-      entity.y = targetHostTop + hitboxPosition.top;
-      const leftLimit = bounds.left;
-      const rightLimit = Math.max(bounds.left, bounds.right - width);
-      if (entity.x < leftLimit || entity.x > rightLimit) {
-        entity.x = clamp(entity.x, leftLimit, rightLimit);
-        entity.vx = 0;
-      }
-      if (entity.grounded && entity.supportY !== null) {
-        entity.y = Math.min(bounds.floor, entity.supportY) - height;
-        entity.vy = 0;
-      } else if (entity.y + height >= bounds.floor) {
-        entity.y = bounds.floor - height;
-        entity.vy = 0;
-        entity.grounded = true;
-        entity.supportY = bounds.floor;
-        entity.supportLeft = bounds.left;
-        entity.supportRight = bounds.right;
-        entity.supportId = "floor";
-        entity.supportGraceUntil = 0;
-      }
-      entity.visualOffsetX =
-        targetHostLeft - (entity.x - hitboxPosition.left);
-      entity.visualOffsetY =
-        targetHostTop - (entity.y - hitboxPosition.top);
-    }
-    const hostLeft =
-      entity.x - hitboxPosition.left + entity.visualOffsetX;
-    const hostTop =
-      entity.y - hitboxPosition.top + entity.visualOffsetY;
-    styleCache.petId = pet.id;
-    styleCache.hostLeft = hostLeft;
-    styleCache.hostTop = hostTop;
-    styleCache.entityX = entity.x;
-    styleCache.entityY = entity.y;
-    styleCache.collisionSignature = collisionSignature;
+    // v1.1.0 geometry positions the host directly from the physics entity.
     if (hostRef.current) {
-      hostRef.current.style.transform = `translate3d(${hostLeft}px, ${hostTop}px, 0)`;
-      if (styleCache.width !== displayWidth) {
-        hostRef.current.style.width = `${displayWidth}px`;
-        styleCache.width = displayWidth;
+      hostRef.current.style.transform = `translate3d(${entity.x}px, ${entity.y}px, 0)`;
+      if (styleCache.width !== width) {
+        hostRef.current.style.width = `${width}px`;
+        styleCache.width = width;
       }
-      if (styleCache.height !== displayHeight) {
-        hostRef.current.style.height = `${displayHeight}px`;
-        styleCache.height = displayHeight;
+      if (styleCache.height !== height) {
+        hostRef.current.style.height = `${height}px`;
+        styleCache.height = height;
       }
       if (styleCache.zIndex !== zIndex) {
         hostRef.current.style.zIndex = String(zIndex);
@@ -1381,13 +1460,13 @@ function MultiPetEntity({
       }
     }
     if (hitboxRef.current) {
-      if (styleCache.hitboxLeft !== hitboxPosition.left) {
-        hitboxRef.current.style.left = `${hitboxPosition.left}px`;
-        styleCache.hitboxLeft = hitboxPosition.left;
+      if (styleCache.hitboxLeft !== entity.hitboxOffsetX) {
+        hitboxRef.current.style.left = `${entity.hitboxOffsetX}px`;
+        styleCache.hitboxLeft = entity.hitboxOffsetX;
       }
-      if (styleCache.hitboxTop !== hitboxPosition.top) {
-        hitboxRef.current.style.top = `${hitboxPosition.top}px`;
-        styleCache.hitboxTop = hitboxPosition.top;
+      if (styleCache.hitboxTop !== entity.hitboxOffsetY) {
+        hitboxRef.current.style.top = `${entity.hitboxOffsetY}px`;
+        styleCache.hitboxTop = entity.hitboxOffsetY;
       }
       if (styleCache.hitboxWidth !== entity.width) {
         hitboxRef.current.style.width = `${entity.width}px`;
@@ -1406,8 +1485,6 @@ function MultiPetEntity({
       registry.current.set(pet.id, { ...entity });
     }
   }
-
-  syncDragPositionRef.current = sync;
 
   function queueJumpTo(
     entity: PhysicsState,
@@ -1997,6 +2074,7 @@ function MultiPetEntity({
       }
       previous = now;
       const entity = physics.current;
+      let landedThisFrame = false;
 
       if (freezeMovementRef.current && !entity.dragging) {
         entity.vx = 0;
@@ -2175,7 +2253,9 @@ function MultiPetEntity({
         let lockedSupportY: number | null = null;
         if (entity.grounded && entity.supportY !== null) {
           const trackedSurface =
-            entity.supportId && entity.supportId !== "floor"
+            entity.supportId &&
+            entity.supportId !== "floor" &&
+            entity.supportId !== "desktop-position"
               ? supportSurfaces.find(
                   (surface) => surface.id === entity.supportId
                 )
@@ -2183,6 +2263,7 @@ function MultiPetEntity({
           if (
             entity.supportId &&
             entity.supportId !== "floor" &&
+            entity.supportId !== "desktop-position" &&
             !trackedSurface
           ) {
             entity.grounded = false;
@@ -2289,6 +2370,8 @@ function MultiPetEntity({
           entity.grounded = false;
           if (entity.vy > 80) setEntityVisual("fall");
         }
+        landedThisFrame =
+          !wasGroundedBeforeStep && entity.grounded;
 
         if (canInteract) {
           for (const other of registry.current.values()) {
@@ -2318,6 +2401,7 @@ function MultiPetEntity({
       }
 
       sync();
+      if (landedThisFrame) void persistDesktopPosition(entity);
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
@@ -2328,8 +2412,6 @@ function MultiPetEntity({
     bounds.floor,
     height,
     width,
-    displayWidth,
-    displayHeight,
     scale,
     desktopRenderConfig?.hitboxOffsetX,
     desktopRenderConfig?.hitboxOffsetY,
@@ -2350,14 +2432,23 @@ function MultiPetEntity({
     function finishWhenHidden() {
       if (document.visibilityState === "hidden") {
         finishDragRef.current();
+        flushPendingPositionPersist();
       }
     }
+    function flushOnPageHide() {
+      finishDragRef.current();
+      flushPendingPositionPersist();
+    }
     window.addEventListener("blur", finishOnBlur);
+    window.addEventListener("pagehide", flushOnPageHide);
     document.addEventListener("visibilitychange", finishWhenHidden);
     return () => {
       window.removeEventListener("blur", finishOnBlur);
+      window.removeEventListener("pagehide", flushOnPageHide);
       document.removeEventListener("visibilitychange", finishWhenHidden);
       finishDragRef.current();
+      flushPendingPositionPersist();
+      clearGlobalDragWatchdog();
       registry.current.delete(pet.id);
     };
   }, [pet.id, registry]);
@@ -2382,6 +2473,7 @@ function MultiPetEntity({
       }
 
       if (isPetInputMove(type)) {
+        if (dragSessionRef.current?.globalMode) return;
         if (!Number.isFinite(x) || !Number.isFinite(y)) return;
         updateDragPositionRef.current(x, y, buttons, "global");
         return;
@@ -2411,6 +2503,7 @@ function MultiPetEntity({
     const unsubscribe = window.deskPet.onGlobalDrag(({ x, y, buttons }) => {
       const session = dragSessionRef.current;
       if (!session?.globalMode) return;
+      armGlobalDragWatchdog(session);
       updateDragPositionRef.current(x, y, buttons, "global");
       if (buttons === 0) finishDragRef.current();
     });
@@ -2520,6 +2613,7 @@ function MultiPetEntity({
         type: string;
         petId?: string;
         locked?: boolean;
+        origin?: { x?: number; y?: number };
       };
       const commandPetId = runtimeCommand.petId;
       if (commandPetId && commandPetId !== pet.id) return;
@@ -2531,6 +2625,40 @@ function MultiPetEntity({
         entity.vx = 0;
         entity.vy = 0;
         if (locked && !entity.dragging) setEntityVisual("idle");
+      } else if (command.type === "release") {
+        const origin = runtimeCommand.origin;
+        const saved = pet.desktopPosition;
+        const hasSavedPosition = hasValidDesktopPosition(saved);
+        if (
+          !hasSavedPosition &&
+          Number.isFinite(origin?.x) &&
+          Number.isFinite(origin?.y)
+        ) {
+          entity.x = clamp(
+            Number(origin?.x),
+            bounds.left,
+            Math.max(bounds.left, bounds.right - width)
+          );
+          entity.y = clamp(
+            Number(origin?.y),
+            0,
+            Math.max(0, bounds.floor - height)
+          );
+          entity.vx = 0;
+          entity.vy = 0;
+          entity.dragging = false;
+          entity.thrown = false;
+          entity.idleUntil = 0;
+          entity.restingUntil = 0;
+          entity.grounded = true;
+          entity.supportY = entity.y + height;
+          entity.supportLeft = bounds.left;
+          entity.supportRight = bounds.right;
+          entity.supportId = "desktop-position";
+          entity.supportGraceUntil = 0;
+          setEntityVisual("idle");
+          sync();
+        }
       } else if (command.type === "rest") {
         entity.vx = 0;
         entity.vy = 0;
@@ -2588,12 +2716,11 @@ function MultiPetEntity({
     bounds.floor,
     width,
     height,
-    displayWidth,
-    displayHeight,
     scale,
     desktopRenderConfig?.hitboxOffsetX,
     desktopRenderConfig?.hitboxOffsetY,
-    effectiveWalkSpeed
+    effectiveWalkSpeed,
+    pet.desktopPosition
   ]);
 
   useEffect(() => {
@@ -2653,6 +2780,42 @@ function MultiPetEntity({
     dragSessionRef.current = null;
   }
 
+  function clearGlobalDragWatchdog() {
+    if (dragGlobalWatchdogTimerRef.current === null) return;
+    window.clearTimeout(dragGlobalWatchdogTimerRef.current);
+    dragGlobalWatchdogTimerRef.current = null;
+  }
+
+  function armGlobalDragWatchdog(session: DragSession) {
+    clearGlobalDragWatchdog();
+    dragGlobalWatchdogTimerRef.current = window.setTimeout(() => {
+      dragGlobalWatchdogTimerRef.current = null;
+      if (dragSessionRef.current === session && session.globalMode) {
+        finishDragRef.current();
+      }
+    }, 600);
+  }
+
+  function maybeSuppressDragPetInput() {
+    const session = dragSessionRef.current;
+    if (
+      !session?.globalMode ||
+      dragDistanceRef.current < 8 ||
+      dragPetInputSuppressedRef.current
+    ) {
+      return;
+    }
+    dragPetInputSuppressedRef.current = true;
+    setSuppressedPanelPet(pet.id, true);
+  }
+
+  function restoreDragPetInputSuppression() {
+    if (!dragPetInputSuppressedRef.current) return;
+    dragPetInputSuppressedRef.current = false;
+    setSuppressedPanelPet(pet.id, false);
+    requestPetRegionRefresh();
+  }
+
   function updateDragPosition(
     clientX: number,
     clientY: number,
@@ -2672,7 +2835,6 @@ function MultiPetEntity({
     const now = performance.now();
     const lastMove = lastDragMoveRef.current;
     if (clientX === lastMove.x && clientY === lastMove.y) {
-      lastMove.at = now;
       lastMove.source = source;
       return;
     }
@@ -2680,6 +2842,7 @@ function MultiPetEntity({
     const dy = clientY - entity.lastPointerY;
     const delta = Math.max(8, now - entity.lastPointerAt);
     dragDistanceRef.current += Math.hypot(dx, dy);
+    maybeSuppressDragPetInput();
     entity.vx = (dx / delta) * 720;
     entity.vy = (dy / delta) * 720;
     entity.x = clientX - entity.dragOffsetX;
@@ -2688,14 +2851,16 @@ function MultiPetEntity({
     entity.lastPointerY = clientY;
     entity.lastPointerAt = now;
     lastDragMoveRef.current = { x: clientX, y: clientY, at: now, source };
-    syncDragPositionRef.current();
   }
 
   updateDragPositionRef.current = updateDragPosition;
 
   function finishDrag() {
+    clearGlobalDragWatchdog();
+    restoreDragPetInputSuppression();
     const session = dragSessionRef.current;
     const entity = physics.current;
+    const releaseSpeed = Math.hypot(entity.vx, entity.vy);
     if (!session && !entity.dragging) {
       dragVisualReadyAtRef.current = 0;
       lastDragMoveRef.current = {
@@ -2732,7 +2897,15 @@ function MultiPetEntity({
     entity.dragging = false;
     const draggedDistance = dragDistanceRef.current;
     dragDistanceRef.current = 0;
-    if (draggedDistance >= 8) onDragInteract();
+    if (draggedDistance < DRAG_CLICK_DISTANCE_PX) {
+      entity.vx = 0;
+      entity.vy = 0;
+      entity.thrown = false;
+      setEntityVisual("idle");
+      sync();
+      return;
+    }
+    onDragInteract();
     const centerX = entity.x + width / 2;
     const top = entity.y;
     const bottom = entity.y + height;
@@ -2768,16 +2941,26 @@ function MultiPetEntity({
       entity.supportGraceUntil = performance.now() + 140;
       entity.thrown = false;
       setEntityVisual("land");
+      void persistDesktopPosition(entity);
       return;
     }
-    entity.vx = clamp(entity.vx, -1200, 1200);
-    entity.vy = clamp(entity.vy, -1000, 1400);
+    const releaseVelocityScale =
+      releaseSpeed > 1200 ? 1200 / releaseSpeed : 1;
+    entity.vx = clamp(entity.vx * releaseVelocityScale, -1200, 1200);
+    entity.vy = clamp(entity.vy * releaseVelocityScale, -1000, 1400);
     entity.grounded = false;
+    entity.thrown = true;
+    entity.supportY = null;
+    entity.supportLeft = null;
+    entity.supportRight = null;
+    entity.supportId = null;
+    entity.supportGraceUntil = 0;
     entity.direction = entity.vx < 0 ? -1 : 1;
     entity.directionY = entity.vy < 0 ? -1 : 1;
-    entity.thrown = true;
     setEntityDirection(entity.direction);
     setEntityVisual("fall");
+    sync();
+    void persistDesktopPosition(entity);
   }
 
   finishDragRef.current = finishDrag;
@@ -2814,7 +2997,7 @@ function MultiPetEntity({
       overlayDragging = false;
       return;
     }
-    dragSessionRef.current = {
+    const session: DragSession = {
       pointerId: -1,
       captureElement,
       globalMode: false,
@@ -2825,6 +3008,37 @@ function MultiPetEntity({
       pointerCancel: () => undefined,
       pointerLeave: () => undefined
     };
+    dragSessionRef.current = session;
+
+    if (
+      window.deskPet.globalDragSupported &&
+      typeof window.deskPet.beginGlobalDrag === "function"
+    ) {
+      void window.deskPet
+        .beginGlobalDrag()
+        .then((result) => {
+          if (
+            !result.ok ||
+            !result.ready ||
+            dragSessionRef.current !== session ||
+            !physics.current.dragging
+          ) {
+            if (typeof window.deskPet.endGlobalDrag === "function") {
+              void window.deskPet.endGlobalDrag().catch(() => undefined);
+            }
+            return;
+          }
+          session.globalMode = true;
+          applyOverlayMouseIgnore(true);
+          maybeSuppressDragPetInput();
+          armGlobalDragWatchdog(session);
+        })
+        .catch(() => {
+          if (typeof window.deskPet.endGlobalDrag === "function") {
+            void window.deskPet.endGlobalDrag().catch(() => undefined);
+          }
+        });
+    }
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -3383,13 +3597,12 @@ function MultiPetEntity({
             boneMap={pet.boneMap}
             fitWidth={visualWidth}
             fitHeight={visualHeight}
-            displayWidth={displayWidth}
-            displayHeight={displayHeight}
-            fitRatio={1}
-            offsetX={(desktopRenderConfig?.offsetX || 0) * scale}
-            offsetY={(desktopRenderConfig?.offsetY || 0) * scale}
-            anchorBottom={false}
-            normalizeBodySize={false}
+            displayWidth={canvasWidth}
+            displayHeight={canvasHeight}
+            offsetX={desktopRenderConfig?.offsetX}
+            offsetY={desktopRenderConfig?.offsetY}
+            anchorBottom
+            normalizeBodySize
             speedMultiplier={animationSpeed}
             className="multi-pet-spine"
             onAnimationData={(items) => {
@@ -3554,16 +3767,11 @@ function MultiPetEntity({
           </section>,
           document.body
         )}
-      {textChatOpen &&
-        createPortal(
-          <section
-            ref={textBubbleRef}
-            className="pet-chat-bubble pet-chat-bubble--portal"
-            style={{
-              left: textBubblePosition.left,
-              top: textBubblePosition.top,
-              zIndex: panelZ,
-              background: dialogModule?.background || "#f7f5ef",
+      {textChatOpen && (
+        <section
+          className="pet-chat-bubble"
+          style={{
+            background: dialogModule?.background || "#f7f5ef",
               backgroundImage: dialogModule?.backgroundImageUrl
                 ? `url("${dialogModule.backgroundImageUrl}")`
                 : undefined,
@@ -3622,9 +3830,8 @@ function MultiPetEntity({
                 <Send size={14} />
               </button>
             </form>
-          </section>,
-          document.body
-        )}
+        </section>
+      )}
       {menuOpen &&
         createPortal(
           <div
@@ -3658,34 +3865,13 @@ function MultiPetEntity({
                 stopAutoReply();
                 setVoiceAudioSrc("");
                 if (voiceChatOpen) closeVoiceChat();
+                setTextChatOpen(true);
+                voiceSessionRef.current += 1;
+                if (voicePhase === "recording") stopVoiceChat();
+                setVoicePhase("idle");
+                setExternalChatOpen(false);
+                window.deskPet.setOverlayFocusable(true);
                 setMenuOpen(false);
-                setTextChatOpen(false);
-                if (typeof window.deskPet.openChat !== "function") {
-                  window.alert("当前版本的聊天窗口接口尚未就绪。");
-                  return;
-                }
-                const anchor = {
-                  petId: pet.id,
-                  x: physics.current.x,
-                  y: physics.current.y,
-                  width: physics.current.width,
-                  height: physics.current.height,
-                  visible: true
-                };
-                setExternalChatOpen(true);
-                void window.deskPet
-                  .openChat("text", dialogModule?.id || "", anchor)
-                  .then((opened) => {
-                    if (!opened) {
-                      setExternalChatOpen(false);
-                      return;
-                    }
-                    setPanelZ(nextPanelZIndex());
-                  })
-                  .catch(() => {
-                    setExternalChatOpen(false);
-                    window.alert("完整文字对话窗口暂时无法打开。");
-                  });
               }}
             >
               <MessageCircle size={16} />

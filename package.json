@@ -1,6 +1,6 @@
 {
   "name": "desk-companion-studio",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "description": "A local-first Windows desktop companion studio.",
   "type": "module",
