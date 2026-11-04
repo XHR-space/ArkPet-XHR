@@ -1,0 +1,121 @@
+{
+  "fixture": "fixture-a-arkpet-2.2.0",
+  "changed": true,
+  "source": "legacy",
+  "warnings": [],
+  "defaultsUsed": [],
+  "legacy": {
+    "renderConfig": {
+      "displayWidth": 300,
+      "displayHeight": 323,
+      "visualWidth": 128,
+      "visualHeight": 144,
+      "hitboxWidth": 96,
+      "hitboxHeight": 96,
+      "hitboxOffsetX": 20,
+      "hitboxOffsetY": 125,
+      "offsetX": 5,
+      "offsetY": 10
+    },
+    "desktopRenderConfig": {
+      "displayWidth": 300,
+      "displayHeight": 323,
+      "visualWidth": 128,
+      "visualHeight": 144,
+      "hitboxWidth": 96,
+      "hitboxHeight": 96,
+      "hitboxOffsetX": 20,
+      "hitboxOffsetY": 125,
+      "offsetX": 5,
+      "offsetY": 10
+    },
+    "desktopPosition": {
+      "x": 770,
+      "y": 971,
+      "direction": 1
+    },
+    "droppedOffsetX": 5,
+    "droppedOffsetY": 10,
+    "direction": 1,
+    "alternativePlacement": {
+      "x": 838,
+      "y": 1030.5
+    }
+  },
+  "layout": {
+    "layoutVersion": 3,
+    "displayFrame": {
+      "width": 300,
+      "height": 323
+    },
+    "collision": {
+      "width": 96,
+      "height": 96,
+      "offsetX": 0,
+      "offsetY": 113.5
+    },
+    "interaction": {
+      "width": 96,
+      "height": 96,
+      "offsetX": 0,
+      "offsetY": 113.5
+    },
+    "placement": {
+      "x": 818,
+      "y": 1019,
+      "direction": 1
+    }
+  },
+  "legacyWorld": {
+    "displayCenter": {
+      "x": 818,
+      "y": 905.5
+    },
+    "collisionRect": {
+      "left": 770,
+      "top": 971,
+      "right": 866,
+      "bottom": 1067,
+      "centerX": 818,
+      "centerY": 1019
+    }
+  },
+  "migratedWorld": {
+    "displayCenter": {
+      "x": 818,
+      "y": 905.5
+    },
+    "displayFrame": {
+      "left": 668,
+      "top": 744,
+      "right": 968,
+      "bottom": 1067
+    },
+    "collisionRect": {
+      "left": 770,
+      "top": 971,
+      "right": 866,
+      "bottom": 1067,
+      "centerX": 818,
+      "centerY": 1019
+    },
+    "interactionRect": {
+      "left": 770,
+      "top": 971,
+      "right": 866,
+      "bottom": 1067,
+      "centerX": 818,
+      "centerY": 1019
+    }
+  },
+  "invariants": {
+    "collisionCenterPreserved": true,
+    "displayCenterPreserved": true,
+    "collisionSizePreserved": true,
+    "interactionEqualsCollision": true
+  },
+  "droppedVisualOffset": {
+    "x": 5,
+    "y": 10
+  }
+}

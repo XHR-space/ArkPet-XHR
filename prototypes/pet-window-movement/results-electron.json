@@ -1,0 +1,15 @@
+{
+  "mode": "electron",
+  "frames": 818,
+  "scheduledFrames": 818,
+  "skippedLateFrames": 75,
+  "elapsedSeconds": 15.008,
+  "fps": 54.51,
+  "moveCall": {
+    "avgMs": 2.9027,
+    "p50Ms": 2.6514,
+    "p95Ms": 4.6326,
+    "maxMs": 15.587
+  },
+  "nativeHelper": null
+}

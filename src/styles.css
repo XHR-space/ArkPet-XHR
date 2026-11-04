@@ -724,3 +724,117 @@ body.bubble-document #root {
   cursor: pointer;
 }
 
+/* v3 角色布局编辑器 */
+.workshop-stage--advanced .workshop-spine-pet {
+  overflow: hidden;
+}
+
+.advanced-mode-tabs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.advanced-display-frame--fixed {
+  cursor: default;
+  pointer-events: none;
+}
+
+.advanced-display-frame--fixed .advanced-resize-edge {
+  background: #2f7df6;
+  pointer-events: auto;
+}
+
+.advanced-volume-frame {
+  position: absolute;
+  z-index: 4;
+  border: 2px solid #d75d5d;
+  background: rgba(215, 93, 93, 0.1);
+  cursor: move;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+}
+
+.advanced-volume-frame--interaction {
+  border-color: #2b9a67;
+  background: rgba(43, 154, 103, 0.12);
+}
+
+.advanced-volume-frame--collision .advanced-frame-label {
+  background: #d75d5d;
+}
+
+.advanced-volume-frame--interaction .advanced-frame-label {
+  background: #2b9a67;
+}
+
+.advanced-volume-frame--collision .advanced-resize-edge {
+  background: #d75d5d;
+}
+
+.advanced-volume-frame--interaction .advanced-resize-edge {
+  background: #2b9a67;
+}
+
+.advanced-section {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #dfe3e7;
+  border-radius: 7px;
+  background: #fbfcfd;
+}
+
+.advanced-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.advanced-section-heading strong {
+  color: #344154;
+  font-size: 12px;
+}
+
+.advanced-section-heading span {
+  color: #7a8493;
+  font-size: 10px;
+}
+
+.advanced-number-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 12px;
+}
+
+.advanced-number-field {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 6px;
+}
+
+.advanced-number-field > span {
+  color: #5f6978;
+  font-size: 11px;
+}
+
+.advanced-number-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid #d3d9df;
+  border-radius: 6px;
+  color: #263244;
+  background: #fff;
+  font-size: 11px;
+}
+
+.advanced-number-field em {
+  color: #8a929d;
+  font-size: 10px;
+  font-style: normal;
+}
+

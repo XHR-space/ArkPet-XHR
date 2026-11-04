@@ -1,0 +1,277 @@
+{
+  "mode": "windows-zorder-focus-spike",
+  "generatedAt": "2026-11-02T11:15:14.811Z",
+  "platform": "win32",
+  "environment": {
+    "electron": "33.4.11",
+    "chrome": "130.0.6723.191",
+    "node": "20.18.3",
+    "scaleFactor": 1.5,
+    "workArea": {
+      "x": 0,
+      "y": 0,
+      "width": 1707,
+      "height": 1019
+    },
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1707,
+      "height": 1067
+    }
+  },
+  "windows": {
+    "pet": {
+      "hwnd": "3934788",
+      "exStyle": "0x08000080",
+      "rect": {
+        "left": 120,
+        "top": 120,
+        "right": 422,
+        "bottom": 482,
+        "width": 302,
+        "height": 362
+      }
+    },
+    "dummy": {
+      "hwnd": "6294246",
+      "rect": {
+        "left": 300,
+        "top": 200,
+        "right": 722,
+        "bottom": 523,
+        "width": 422,
+        "height": 323
+      }
+    },
+    "overlap": {
+      "left": 300,
+      "top": 200,
+      "right": 422,
+      "bottom": 482,
+      "width": 122,
+      "height": 282
+    },
+    "overlapPoint": {
+      "x": 361,
+      "y": 341
+    },
+    "petBlockCenter": {
+      "x": 362,
+      "y": 371
+    },
+    "overlapIsInsideBlock": true,
+    "taskbar": {
+      "hwnd": "66042",
+      "rect": {
+        "left": 0,
+        "top": 1019,
+        "right": 1707,
+        "bottom": 1067,
+        "width": 1707,
+        "height": 48
+      }
+    },
+    "taskbarPoint": {
+      "x": 854,
+      "y": 1043
+    },
+    "petMovedRect": {
+      "left": 794,
+      "top": 932,
+      "right": 1096,
+      "bottom": 1294,
+      "width": 302,
+      "height": 362
+    },
+    "petMovedBlockPoint": {
+      "x": 1036,
+      "y": 1183
+    },
+    "eventLog": {
+      "pet": [
+        {
+          "type": "focus",
+          "at": 1793618113222
+        },
+        {
+          "type": "focus",
+          "at": 1793618113222
+        },
+        {
+          "type": "blur",
+          "at": 1793618113252
+        }
+      ],
+      "dummy": [
+        {
+          "type": "blur",
+          "at": 1793618113222
+        },
+        {
+          "type": "focus",
+          "at": 1793618113252
+        }
+      ]
+    }
+  },
+  "checks": {
+    "normalWindowAbovePet": {
+      "verified": true,
+      "pass": false,
+      "detail": {
+        "dummyAbovePet": true,
+        "windowFromPoint": "657522",
+        "dummyRoot": "6294246",
+        "overlapPoint": {
+          "x": 361,
+          "y": 341
+        }
+      }
+    },
+    "clickGoesToFrontWindow": {
+      "verified": true,
+      "pass": false,
+      "detail": {
+        "injected": true,
+        "method": "SendInput mouse_event at the shared point, cursor restored afterwards",
+        "overlapPoint": {
+          "x": 361,
+          "y": 341
+        },
+        "dummyMouseDownEvents": 0,
+        "petMouseDownEvents": 0,
+        "foregroundAfterClick": "657522",
+        "dummyRoot": "6294246"
+      }
+    },
+    "raiseNoActivatePutsPetOnTopWithoutFocus": {
+      "verified": true,
+      "pass": false,
+      "detail": {
+        "petAboveDummy": false,
+        "windowFromPoint": "657522",
+        "petRoot": "3934788",
+        "overlapPoint": {
+          "x": 361,
+          "y": 341
+        }
+      }
+    },
+    "raiseNoActivateDoesNotStealForeground": {
+      "verified": true,
+      "pass": true,
+      "detail": {
+        "foregroundAfterRaise": "657522",
+        "petRoot": "3934788",
+        "dummyRoot": "6294246"
+      }
+    },
+    "raisedPetReceivesClick": {
+      "verified": true,
+      "pass": false,
+      "detail": {
+        "injected": true,
+        "overlapPoint": {
+          "x": 361,
+          "y": 341
+        },
+        "petMouseDownEvents": 0,
+        "dummyMouseDownEvents": 0,
+        "foregroundAfterClick": "657522"
+      }
+    },
+    "petClickDoesNotActivatePet": {
+      "verified": true,
+      "pass": true,
+      "detail": {
+        "foregroundAfterClick": "657522",
+        "petRoot": "3934788"
+      }
+    },
+    "pixelCaptureControl": {
+      "verified": true,
+      "pass": false,
+      "detail": {
+        "note": "The same capture path must see the pet block before the taskbar test can be trusted.",
+        "point": {
+          "x": 362,
+          "y": 371
+        },
+        "pixel": {
+          "g": 239,
+          "r": 237,
+          "hex": "#EDEFF2",
+          "b": 242
+        },
+        "expectedPetColor": {
+          "r": 255,
+          "g": 120,
+          "b": 0
+        }
+      }
+    },
+    "taskbarPixelNotOverpainted": {
+      "verified": true,
+      "pass": false,
+      "detail": {
+        "note": "The pet window rect covers the taskbar point, so the pixel must not show the pet block.",
+        "taskbarPoint": {
+          "x": 854,
+          "y": 1043
+        },
+        "petRectCoversTaskbarPoint": true,
+        "pixelAtTaskbarPoint": {
+          "g": 255,
+          "r": 255,
+          "hex": "#FFFFFF",
+          "b": 255
+        },
+        "petColorVisible": false
+      }
+    },
+    "taskbarCoversPetWindow": {
+      "verified": true,
+      "pass": true,
+      "detail": {
+        "windowFromPointAtTaskbar": "66042",
+        "taskbarHwnd": "66042",
+        "petRoot": "3934788"
+      }
+    },
+    "temporaryFocusCanActivatePet": {
+      "verified": true,
+      "pass": true,
+      "detail": {
+        "helperReportedSuccess": true,
+        "method": "SetForegroundWindow",
+        "foregroundAfterFocus": "3934788",
+        "petRoot": "3934788"
+      }
+    },
+    "focusCanBeTakenBackAndDoesNotBounce": {
+      "verified": true,
+      "pass": true,
+      "detail": {
+        "helperReportedSuccess": true,
+        "method": "SetForegroundWindow",
+        "foregroundAfterDummyFocus": "6294246",
+        "foregroundAfterSettling": "6294246",
+        "dummyRoot": "6294246",
+        "petRoot": "3934788",
+        "waitMs": 1500
+      }
+    }
+  },
+  "unverified": [],
+  "errors": [],
+  "summary": {
+    "passed": 5,
+    "failed": 6,
+    "unverified": 0
+  },
+  "helper": {
+    "started": true,
+    "stopped": true
+  }
+}

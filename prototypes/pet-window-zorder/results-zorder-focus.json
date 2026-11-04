@@ -1,0 +1,160 @@
+{
+  "mode": "windows-zorder-focus-spike-v2",
+  "generatedAt": "2026-11-02T12:48:47.789Z",
+  "platform": "win32",
+  "environment": {
+    "electron": "33.4.11",
+    "chrome": "130.0.6723.191",
+    "node": "20.18.3",
+    "scaleFactor": 1.5,
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1707,
+      "height": 1067
+    },
+    "workArea": {
+      "x": 0,
+      "y": 0,
+      "width": 1707,
+      "height": 1019
+    },
+    "helperDpiAwareness": "PerMonitorV2"
+  },
+  "windows": {
+    "pet": {
+      "hwnd": "9571210",
+      "exStyle": "0x08000080",
+      "rect": {
+        "left": 180,
+        "top": 180,
+        "right": 633,
+        "bottom": 723,
+        "width": 453,
+        "height": 543
+      }
+    },
+    "dummy": {
+      "hwnd": "9440054"
+    },
+    "petRoot": "9571210",
+    "dummyRoot": "9440054",
+    "blockCenter": {
+      "x": 405,
+      "y": 450
+    },
+    "coverBeforeTopmost": "657522",
+    "taskbar": {
+      "hwnd": "66042",
+      "rect": {
+        "left": 0,
+        "top": 1528,
+        "right": 2560,
+        "bottom": 1600,
+        "width": 2560,
+        "height": 72
+      },
+      "point": {
+        "x": 1280,
+        "y": 1564
+      }
+    },
+    "petOverTaskbarRect": {
+      "left": 1055,
+      "top": 1294,
+      "right": 1508,
+      "bottom": 1837,
+      "width": 453,
+      "height": 543
+    }
+  },
+  "checks": {
+    "petWindowIsToolWindowAndNoActivate": {
+      "pass": true,
+      "detail": {
+        "exStyle": "0x08000080",
+        "expected": "WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW"
+      }
+    },
+    "topmostPetVisibleOverOtherApps": {
+      "pass": true,
+      "detail": {
+        "blockCenter": {
+          "x": 405,
+          "y": 450
+        },
+        "windowOnTopBeforeTopmost": "657522",
+        "petRoot": "9571210",
+        "pixelAfterTopmost": {
+          "g": 128,
+          "r": 238,
+          "hex": "#EE8031",
+          "b": 49
+        },
+        "windowFromPointAfterTopmost": "9571210"
+      }
+    },
+    "taskbarOccludesTopmostPet": {
+      "pass": false,
+      "detail": {
+        "taskbarPoint": {
+          "x": 1280,
+          "y": 1564
+        },
+        "taskbarHwnd": "66042",
+        "petRoot": "9571210",
+        "petWindowCoversPoint": true,
+        "pixelAtTaskbarPoint": {
+          "g": 128,
+          "r": 238,
+          "hex": "#EE8031",
+          "b": 49
+        },
+        "windowFromPointAtTaskbar": "9571210"
+      }
+    },
+    "raisedNormalWindowCoversPet": {
+      "pass": true,
+      "detail": {
+        "compareZ_dummyAbovePet": 1
+      }
+    },
+    "raiseNoActivatePutsPetBackOnTop": {
+      "pass": true,
+      "detail": {
+        "compareZ_petAboveDummy": 1,
+        "foregroundBeforePetRaise": "657522",
+        "foregroundAfterPetRaise": "657522",
+        "petRoot": "9571210"
+      }
+    },
+    "temporaryFocusCanActivatePet": {
+      "pass": true,
+      "detail": {
+        "method": "altKeyUnlock",
+        "foregroundAfterPetFocus": "9571210",
+        "petRoot": "9571210"
+      }
+    },
+    "focusCanBeTakenBackAndDoesNotBounce": {
+      "pass": true,
+      "detail": {
+        "method": "SetForegroundWindow",
+        "foregroundImmediatelyAfterDummyFocus": "9571210",
+        "note": "focus switches a few frames after the call; the settled value is what matters",
+        "foregroundAfterSettle": "9440054",
+        "dummyRoot": "9440054",
+        "waitMs": 1500
+      }
+    }
+  },
+  "errors": [],
+  "summary": {
+    "passed": 6,
+    "failed": 1
+  },
+  "helper": {
+    "started": true,
+    "stopped": true
+  }
+}

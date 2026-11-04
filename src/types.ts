@@ -69,6 +69,28 @@ export type PetRenderConfig = {
   offsetY: number;
 };
 
+export type PetLayoutBox = {
+  width: number;
+  height: number;
+  offsetX: number;
+  offsetY: number;
+};
+
+export type PetDesktopLayout = {
+  layoutVersion: 3;
+  displayFrame: {
+    width: number;
+    height: number;
+  };
+  collision: PetLayoutBox;
+  interaction: PetLayoutBox;
+  placement: {
+    x: number;
+    y: number;
+    direction: 1 | -1;
+  };
+};
+
 export type PetModulePlugins = {
   voiceProfileId?: string;
   aiModuleId?: string;
@@ -169,6 +191,7 @@ export type PetProfile = {
   voiceLines?: PetVoiceLines;
   renderConfig?: PetRenderConfig;
   desktopRenderConfig?: PetRenderConfig;
+  layout?: PetDesktopLayout;
   desktopPosition?: PetDesktopPosition;
   createdAt: string;
   updatedAt: string;

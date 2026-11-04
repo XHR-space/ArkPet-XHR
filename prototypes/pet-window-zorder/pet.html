@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ArkPet z-order spike - pet window</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        font-family: "Segoe UI", sans-serif;
+      }
+
+      #block {
+        position: absolute;
+        left: 180px;
+        top: 140px;
+        width: 120px;
+        height: 220px;
+        background: rgb(255, 120, 0);
+        border-radius: 8px;
+      }
+
+      #badge {
+        position: absolute;
+        left: 8px;
+        top: 8px;
+        padding: 6px 8px;
+        background: rgb(255, 120, 0);
+        color: #10141c;
+        font-size: 12px;
+        font-weight: 600;
+        border-radius: 4px;
+      }
+
+      button {
+        position: absolute;
+        left: 8px;
+        top: 44px;
+        padding: 6px 10px;
+        font-size: 12px;
+        border: 1px solid #10141c;
+        border-radius: 4px;
+        background: #ffe6cc;
+        color: #10141c;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="block"></div>
+    <div id="badge">pet window</div>
+    <button id="focusButton" type="button">temporary focus</button>
+    <script>
+      const { ipcRenderer } = require("electron");
+
+      function report(type) {
+        ipcRenderer.send("pet-window-event", { window: "pet", type, at: Date.now() });
+      }
+
+      document.addEventListener("mousedown", () => report("mousedown"));
+      document.addEventListener("mouseup", () => report("mouseup"));
+      window.addEventListener("focus", () => report("focus"));
+      window.addEventListener("blur", () => report("blur"));
+
+      document.getElementById("focusButton").addEventListener("click", () => {
+        report("focusButton");
+        ipcRenderer.send("pet-window-event", { window: "pet", type: "focusRequest", at: Date.now() });
+      });
+    </script>
+  </body>
+</html>

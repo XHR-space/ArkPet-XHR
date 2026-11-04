@@ -31,12 +31,17 @@ import {
   FIRST_PET_LEG_WALK_LABEL
 } from "../lib/firstPetLegWalk";
 import {
-  getHitboxPosition,
+  anchorLayoutPlacement,
+  getLayoutBoxPosition,
+  isPetLayoutV3,
+  resolvePetLayout,
   withRenderConfigDefaults
 } from "../lib/renderConfig";
 import { useAppState } from "../state";
 import type {
   BoneRoleMap,
+  PetDesktopLayout,
+  PetLayoutBox,
   PetModulePlugins,
   PetProfile,
   PetRenderConfig,
@@ -47,6 +52,7 @@ import type {
 } from "../types";
 
 type WorkshopMode = "edit" | "create";
+type AdvancedMode = "collision" | "interaction";
 type AdvancedResizeEdge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
 const advancedResizeEdges: AdvancedResizeEdge[] = [
@@ -60,14 +66,38 @@ const advancedResizeEdges: AdvancedResizeEdge[] = [
   "sw"
 ];
 
-function hasSameRenderConfig(
-  left: Partial<PetRenderConfig> | null,
-  right: Partial<PetRenderConfig> | null
+function hasSameLayout(
+  left: PetDesktopLayout | null,
+  right: PetDesktopLayout | null
 ) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function hasSameLayoutBox(left: PetLayoutBox, right: PetLayoutBox) {
   return (
-    JSON.stringify(withRenderConfigDefaults(left)) ===
-    JSON.stringify(withRenderConfigDefaults(right))
+    left.width === right.width &&
+    left.height === right.height &&
+    left.offsetX === right.offsetX &&
+    left.offsetY === right.offsetY
   );
+}
+
+function withUpdatedLayoutBox(
+  layout: PetDesktopLayout,
+  mode: AdvancedMode,
+  box: PetLayoutBox
+) {
+  const next: PetDesktopLayout = {
+    ...layout,
+    [mode]: box
+  };
+  if (
+    mode === "collision" &&
+    hasSameLayoutBox(layout.collision, layout.interaction)
+  ) {
+    next.interaction = { ...box };
+  }
+  return anchorLayoutPlacement(layout, next);
 }
 
 export const ADVANCED_DRAFT_STORAGE_PREFIX =
@@ -77,32 +107,32 @@ function getAdvancedDraftStorageKey(petId: string) {
   return `${ADVANCED_DRAFT_STORAGE_PREFIX}${petId}`;
 }
 
-function readAdvancedRenderDraft(petId: string): PetRenderConfig | null {
+function readAdvancedLayoutDraft(petId: string): PetDesktopLayout | null {
   try {
     const raw = window.sessionStorage.getItem(getAdvancedDraftStorageKey(petId));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<PetRenderConfig> | null;
+    const parsed = JSON.parse(raw) as Partial<PetDesktopLayout> | null;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return null;
     }
-    return withRenderConfigDefaults(parsed);
+    return isPetLayoutV3(parsed) ? resolvePetLayout(parsed) : null;
   } catch {
     return null;
   }
 }
 
-function writeAdvancedRenderDraft(petId: string, draft: PetRenderConfig) {
+function writeAdvancedLayoutDraft(petId: string, draft: PetDesktopLayout) {
   try {
     window.sessionStorage.setItem(
       getAdvancedDraftStorageKey(petId),
-      JSON.stringify(withRenderConfigDefaults(draft))
+      JSON.stringify(draft)
     );
   } catch {
     // Session storage can be unavailable in restricted renderer contexts.
   }
 }
 
-function clearAdvancedRenderDraft(petId: string) {
+function clearAdvancedLayoutDraft(petId: string) {
   try {
     window.sessionStorage.removeItem(getAdvancedDraftStorageKey(petId));
   } catch {
@@ -140,12 +170,10 @@ export function WorkshopView() {
   const [creating, setCreating] = useState(false);
   const [previewAction, setPreviewAction] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [advancedMode, setAdvancedMode] = useState<
-    "position" | "hitbox" | "display"
-  >("hitbox");
-  const [draftRenderConfig, setDraftRenderConfig] =
-    useState<PetRenderConfig | null>(null);
-  const [renderConfigDirty, setRenderConfigDirty] = useState(false);
+  const [advancedMode, setAdvancedMode] =
+    useState<AdvancedMode>("collision");
+  const [draftLayout, setDraftLayout] = useState<PetDesktopLayout | null>(null);
+  const [layoutDirty, setLayoutDirty] = useState(false);
   const [diagnostics, setDiagnostics] =
     useState<ActionDiagnostics | null>(null);
   const [draftDiagnostics, setDraftDiagnostics] =
@@ -162,7 +190,7 @@ export function WorkshopView() {
   const draftOwnerPetIdRef = useRef<string | null>(null);
   const draftPersistenceRef = useRef<{
     petId: string;
-    draft: PetRenderConfig;
+    draft: PetDesktopLayout;
   } | null>(null);
 
   const currentPetForDraft = state
@@ -171,9 +199,9 @@ export function WorkshopView() {
   draftPersistenceRef.current =
     currentPetForDraft &&
     draftOwnerPetIdRef.current === currentPetForDraft.id &&
-    draftRenderConfig &&
-    renderConfigDirty
-      ? { petId: currentPetForDraft.id, draft: draftRenderConfig }
+    draftLayout &&
+    layoutDirty
+      ? { petId: currentPetForDraft.id, draft: draftLayout }
       : null;
 
   useEffect(() => {
@@ -217,7 +245,12 @@ export function WorkshopView() {
       state.pets.find((item) => item.id === state.activePetId) ||
       state.pets[0];
     if (!currentPet) return;
-    restoreAdvancedRenderDraft(currentPet.id, currentPet.renderConfig);
+    restoreAdvancedLayoutDraft(
+      currentPet.id,
+      currentPet.layout,
+      currentPet.renderConfig,
+      currentPet.desktopPosition
+    );
   }, [state?.activePetId]);
 
   useEffect(() => {
@@ -228,8 +261,8 @@ export function WorkshopView() {
   useEffect(() => {
     const pendingDraft = draftPersistenceRef.current;
     if (!pendingDraft) return;
-    writeAdvancedRenderDraft(pendingDraft.petId, pendingDraft.draft);
-  }, [draftRenderConfig, renderConfigDirty, state?.activePetId]);
+    writeAdvancedLayoutDraft(pendingDraft.petId, pendingDraft.draft);
+  }, [draftLayout, layoutDirty, state?.activePetId]);
 
   useEffect(() => {
     if (!state) return;
@@ -264,7 +297,7 @@ export function WorkshopView() {
       advancedPointerCleanupRef.current?.();
       const pendingDraft = draftPersistenceRef.current;
       if (pendingDraft) {
-        writeAdvancedRenderDraft(pendingDraft.petId, pendingDraft.draft);
+        writeAdvancedLayoutDraft(pendingDraft.petId, pendingDraft.draft);
       }
       const lockedPetId = editLockedPetIdRef.current;
       if (lockedPetId) {
@@ -290,18 +323,26 @@ export function WorkshopView() {
     const autoVoiceEnabled =
       pet.autoVoiceEnabled ?? pet.autoDialogueEnabled ?? true;
   const activeRenderConfig: PetRenderConfig =
-    draftRenderConfig || withRenderConfigDefaults(pet.renderConfig);
+    withRenderConfigDefaults(pet.renderConfig);
+  const activeLayout: PetDesktopLayout =
+    draftLayout ||
+    resolvePetLayout(pet.layout, pet.renderConfig, pet.desktopPosition);
+  const hasV3Layout = isPetLayoutV3(pet.layout);
 
-  function restoreAdvancedRenderDraft(
+  function restoreAdvancedLayoutDraft(
     petId: string,
-    savedConfig?: Partial<PetRenderConfig> | null
+    savedLayout?: Partial<PetDesktopLayout> | null,
+    savedConfig?: Partial<PetRenderConfig> | null,
+    desktopPosition?: PetProfile["desktopPosition"]
   ) {
-    const restoredDraft = readAdvancedRenderDraft(petId);
+    const restoredDraft = readAdvancedLayoutDraft(petId);
+    const nextLayout =
+      restoredDraft ||
+      resolvePetLayout(savedLayout, savedConfig, desktopPosition);
     draftOwnerPetIdRef.current = petId;
-    setDraftRenderConfig(
-      restoredDraft || withRenderConfigDefaults(savedConfig)
-    );
-    setRenderConfigDirty(restoredDraft !== null);
+    setDraftLayout(nextLayout);
+    setAdvancedPreviewBaseScaleLock(getAdvancedPreviewScale(nextLayout));
+    setLayoutDirty(restoredDraft !== null);
   }
 
   async function savePet(nextPet: PetProfile) {
@@ -373,13 +414,13 @@ export function WorkshopView() {
     }
     const pets = currentState.pets.filter((item) => item.id !== pet.id);
     await updateState({ pets, activePetId: pets[0].id });
-    clearAdvancedRenderDraft(pet.id);
+    clearAdvancedLayoutDraft(pet.id);
     setMode("edit");
   }
 
   async function startCreate() {
     if (!(await resolveUnsavedRenderConfig())) return;
-    clearAdvancedRenderDraft(pet.id);
+    clearAdvancedLayoutDraft(pet.id);
     setMode("create");
     setDraftId(makeId("spine-draft"));
     setDraftParts({});
@@ -556,33 +597,70 @@ export function WorkshopView() {
     window.setTimeout(() => setPreviewAction(""), 3200);
   }
 
-  function saveRenderConfig(patch: Partial<NonNullable<PetProfile["renderConfig"]>>) {
+  function updateActiveLayout(
+    transform: (current: PetDesktopLayout) => PetDesktopLayout
+  ) {
     draftOwnerPetIdRef.current = pet.id;
-    setDraftRenderConfig((current) => ({
-      ...withRenderConfigDefaults(current || pet.renderConfig),
-      ...patch
+    setDraftLayout((current) => transform(current || activeLayout));
+    setLayoutDirty(true);
+  }
+
+  function updateLayoutBox(
+    mode: AdvancedMode,
+    patch: Partial<PetLayoutBox>
+  ) {
+    updateActiveLayout((current) => {
+      const nextBox = {
+        ...current[mode],
+        ...patch
+      };
+      return withUpdatedLayoutBox(current, mode, nextBox);
+    });
+  }
+
+  function updateDisplayFrame(
+    patch: Partial<PetDesktopLayout["displayFrame"]>
+  ) {
+    updateActiveLayout((current) => ({
+      ...current,
+      displayFrame: {
+        ...current.displayFrame,
+        ...patch
+      }
     }));
-    setRenderConfigDirty(true);
   }
 
   async function commitRenderConfig() {
-    const nextRenderConfig = withRenderConfigDefaults({
-      ...(pet.renderConfig || {}),
-      ...activeRenderConfig
-    });
-    await savePet({
-      ...pet,
-      renderConfig: nextRenderConfig,
-      desktopRenderConfig: nextRenderConfig
-    });
+    const nextLayout = activeLayout;
+    if (hasV3Layout) {
+      await savePet({
+        ...pet,
+        layout: nextLayout
+      });
+    } else {
+      // 旧记录保留 legacy 运行路径，同时补写 v3 布局供后续版本读取。
+      const nextRenderConfig = withRenderConfigDefaults({
+        ...(pet.renderConfig || {}),
+        displayWidth: nextLayout.displayFrame.width,
+        displayHeight: nextLayout.displayFrame.height,
+        hitboxWidth: nextLayout.collision.width,
+        hitboxHeight: nextLayout.collision.height
+      });
+      await savePet({
+        ...pet,
+        renderConfig: nextRenderConfig,
+        desktopRenderConfig: nextRenderConfig,
+        layout: nextLayout
+      });
+    }
     draftOwnerPetIdRef.current = pet.id;
-    setDraftRenderConfig(nextRenderConfig);
-    setRenderConfigDirty(false);
-    clearAdvancedRenderDraft(pet.id);
+    setDraftLayout(nextLayout);
+    setLayoutDirty(false);
+    clearAdvancedLayoutDraft(pet.id);
   }
 
   async function resolveUnsavedRenderConfig() {
-    if (!renderConfigDirty) return true;
+    if (!layoutDirty) return true;
     const shouldSave = window.confirm(
       "高级设置有未保存的改动。\n\n点击“确定”保存并继续；点击“取消”后再选择是否放弃。"
     );
@@ -595,26 +673,33 @@ export function WorkshopView() {
     );
     if (!shouldDiscard) return false;
     draftOwnerPetIdRef.current = pet.id;
-    setDraftRenderConfig(withRenderConfigDefaults(pet.renderConfig));
-    setRenderConfigDirty(false);
-    clearAdvancedRenderDraft(pet.id);
+    setDraftLayout(
+      resolvePetLayout(pet.layout, pet.renderConfig, pet.desktopPosition)
+    );
+    setLayoutDirty(false);
+    clearAdvancedLayoutDraft(pet.id);
     return true;
   }
 
   async function toggleAdvancedSettings() {
     if (!showAdvanced) {
-      restoreAdvancedRenderDraft(pet.id, pet.renderConfig);
+      restoreAdvancedLayoutDraft(
+        pet.id,
+        pet.layout,
+        pet.renderConfig,
+        pet.desktopPosition
+      );
       setShowAdvanced(true);
       return;
     }
     if (!(await resolveUnsavedRenderConfig())) return;
-    clearAdvancedRenderDraft(pet.id);
+    clearAdvancedLayoutDraft(pet.id);
     setShowAdvanced(false);
   }
 
-  function getAdvancedPreviewScale(config: Partial<PetRenderConfig>) {
-    const width = config.displayWidth || 260;
-    const height = config.displayHeight || 320;
+  function getAdvancedPreviewScale(layout: PetDesktopLayout) {
+    const width = layout.displayFrame.width;
+    const height = layout.displayFrame.height;
     if (stageSize.width <= 0 || stageSize.height <= 0) return 1;
     return Math.max(
       0.2,
@@ -628,7 +713,11 @@ export function WorkshopView() {
 
   function beginAdvancedPointerSession(
     event: React.PointerEvent,
-    getPatch: (dx: number, dy: number) => Partial<PetRenderConfig>,
+    getLayout: (
+      dx: number,
+      dy: number,
+      start: PetDesktopLayout
+    ) => PetDesktopLayout,
     lockPreviewBase = false
   ) {
     event.preventDefault();
@@ -638,11 +727,15 @@ export function WorkshopView() {
     const startY = event.clientY;
     const captureTarget = event.currentTarget as HTMLElement;
     const pointerId = event.pointerId;
-    const startDraft = withRenderConfigDefaults(activeRenderConfig);
-    const savedDraft = withRenderConfigDefaults(pet.renderConfig);
+    const startDraft = activeLayout;
+    const savedDraft = resolvePetLayout(
+      pet.layout,
+      pet.renderConfig,
+      pet.desktopPosition
+    );
     draftOwnerPetIdRef.current = pet.id;
     const lockedPreviewBase = lockPreviewBase
-      ? getAdvancedPreviewScale(startDraft)
+      ? advancedPreviewBaseScaleLock ?? getAdvancedPreviewScale(startDraft)
       : null;
     if (lockedPreviewBase !== null) {
       setAdvancedPreviewBaseScaleLock(lockedPreviewBase);
@@ -653,7 +746,6 @@ export function WorkshopView() {
     let frame: number | null = null;
     let pendingPoint: { x: number; y: number } | null = null;
     let captureActive = false;
-    let previewBaseLockActive = lockedPreviewBase !== null;
 
     const applyPendingPoint = () => {
       frame = null;
@@ -661,11 +753,8 @@ export function WorkshopView() {
       const dx = (pendingPoint.x - startX) / previewScale;
       const dy = (pendingPoint.y - startY) / previewScale;
       pendingPoint = null;
-      setDraftRenderConfig({
-        ...startDraft,
-        ...getPatch(dx, dy)
-      });
-      setRenderConfigDirty(true);
+      setDraftLayout(getLayout(dx, dy, startDraft));
+      setLayoutDirty(true);
     };
 
     const detach = () => {
@@ -690,10 +779,6 @@ export function WorkshopView() {
       }
       if (frame !== null) cancelAnimationFrame(frame);
       frame = null;
-      if (previewBaseLockActive) {
-        previewBaseLockActive = false;
-        setAdvancedPreviewBaseScaleLock(null);
-      }
       if (advancedPointerCleanupRef.current === detach) {
         advancedPointerCleanupRef.current = null;
       }
@@ -701,8 +786,8 @@ export function WorkshopView() {
 
     const cancel = () => {
       detach();
-      setDraftRenderConfig(startDraft);
-      setRenderConfigDirty(!hasSameRenderConfig(startDraft, savedDraft));
+      setDraftLayout(startDraft);
+      setLayoutDirty(!hasSameLayout(startDraft, savedDraft));
     };
 
     const handleMove = (moveEvent: PointerEvent) => {
@@ -765,89 +850,72 @@ export function WorkshopView() {
 
   function beginAdvancedDrag(
     event: React.PointerEvent,
-    kind: "display" | "hitbox" | "hitboxMove" | "model"
+    mode: AdvancedMode
   ) {
-    const start = withRenderConfigDefaults(activeRenderConfig);
-    beginAdvancedPointerSession(event, (dx, dy) => {
-      if (kind === "display") {
-        return {
-          visualWidth: Math.max(
-            40,
-            Math.round(start.visualWidth + dx)
-          ),
-          visualHeight: Math.max(
-            60,
-            Math.round(start.visualHeight + dy)
-          )
-        };
-      } else if (kind === "hitbox") {
-        return {
-          hitboxWidth: Math.max(30, Math.round(start.hitboxWidth + dx)),
-          hitboxHeight: Math.max(40, Math.round(start.hitboxHeight + dy))
-        };
-      } else if (kind === "hitboxMove") {
-        return {
-          hitboxOffsetX: Math.round(start.hitboxOffsetX + dx),
-          hitboxOffsetY: Math.round(start.hitboxOffsetY + dy)
-        };
-      }
-      return {
-        offsetX: Math.round(start.offsetX + dx),
-        offsetY: Math.round(start.offsetY + dy)
-      };
-    }, kind === "display");
+    beginAdvancedPointerSession(event, (dx, dy, start) => {
+      const box = start[mode];
+      return withUpdatedLayoutBox(start, mode, {
+        ...box,
+        offsetX: Math.round(
+          box.offsetX + dx * start.placement.direction
+        ),
+        offsetY: Math.round(box.offsetY + dy)
+      });
+    });
   }
 
   function beginAdvancedResize(
     event: React.PointerEvent,
-    mode: "display" | "hitbox",
+    mode: "display" | AdvancedMode,
     edge: AdvancedResizeEdge
   ) {
-    const start = withRenderConfigDefaults(activeRenderConfig);
     const handlesLeft = edge.includes("w");
     const handlesRight = edge.includes("e");
     const handlesTop = edge.includes("n");
     const handlesBottom = edge.includes("s");
 
-    beginAdvancedPointerSession(event, (rawDx, rawDy) => {
+    beginAdvancedPointerSession(event, (rawDx, rawDy, start) => {
       const dx = Math.round(rawDx);
       const dy = Math.round(rawDy);
       const widthDelta = (handlesRight ? dx : 0) - (handlesLeft ? dx : 0);
       const heightDelta = (handlesBottom ? dy : 0) - (handlesTop ? dy : 0);
 
-      if (mode === "hitbox") {
-        const hitboxWidth = Math.max(20, Math.round(start.hitboxWidth + widthDelta));
-        const hitboxHeight = Math.max(
-          30,
-          Math.round(start.hitboxHeight + heightDelta)
-        );
-        const actualWidthDelta = hitboxWidth - start.hitboxWidth;
-        const actualHeightDelta = hitboxHeight - start.hitboxHeight;
+      if (mode === "display") {
         return {
-          hitboxWidth,
-          hitboxHeight,
-          hitboxOffsetX: handlesLeft
-            ? Math.round(start.hitboxOffsetX - actualWidthDelta / 2)
-            : handlesRight
-              ? Math.round(start.hitboxOffsetX + actualWidthDelta / 2)
-              : start.hitboxOffsetX,
-          hitboxOffsetY: handlesTop
-            ? Math.round(start.hitboxOffsetY - actualHeightDelta / 2)
-            : handlesBottom
-              ? Math.round(start.hitboxOffsetY + actualHeightDelta / 2)
-              : start.hitboxOffsetY
+          ...start,
+          displayFrame: {
+            width: Math.max(
+              40,
+              Math.round(start.displayFrame.width + widthDelta)
+            ),
+            height: Math.max(
+              60,
+              Math.round(start.displayFrame.height + heightDelta)
+            )
+          }
         };
       }
-      return {
-        visualWidth: Math.max(
-          40,
-          Math.round(start.visualWidth + widthDelta)
-        ),
-        visualHeight: Math.max(
-          60,
-          Math.round(start.visualHeight + heightDelta)
-        )
-      };
+      const box = start[mode];
+      const width = Math.max(20, Math.round(box.width + widthDelta));
+      const height = Math.max(30, Math.round(box.height + heightDelta));
+      const actualWidthDelta = width - box.width;
+      const actualHeightDelta = height - box.height;
+      const horizontalCenterDelta =
+        (handlesLeft
+          ? -actualWidthDelta / 2
+          : handlesRight
+            ? actualWidthDelta / 2
+            : 0) * start.placement.direction;
+      return withUpdatedLayoutBox(start, mode, {
+        width,
+        height,
+        offsetX: Math.round(box.offsetX + horizontalCenterDelta),
+        offsetY: handlesTop
+          ? Math.round(box.offsetY - actualHeightDelta / 2)
+          : handlesBottom
+            ? Math.round(box.offsetY + actualHeightDelta / 2)
+            : box.offsetY
+      });
     }, mode === "display");
   }
 
@@ -856,31 +924,41 @@ export function WorkshopView() {
     Boolean(draftParts.atlas) &&
     Boolean(draftParts.texture) &&
     draftDiagnostics?.status !== "invalid";
-    const rawDisplayWidth = activeRenderConfig.displayWidth || 260;
-    const rawDisplayHeight = activeRenderConfig.displayHeight || 320;
-    // 预览倍率必须作用于整套几何，避免画面框、角色和碰撞框比例不一致。
-    const advancedPreviewBaseScale =
-      advancedPreviewBaseScaleLock ?? getAdvancedPreviewScale(activeRenderConfig);
-    const advancedScale = advancedPreviewBaseScale * advancedPreviewZoom;
-    const advancedDisplayWidth = rawDisplayWidth * advancedScale;
-    const advancedDisplayHeight = rawDisplayHeight * advancedScale;
-    const advancedVisualWidth =
-      (activeRenderConfig.visualWidth || 104) * advancedScale;
-    const advancedVisualHeight =
-      (activeRenderConfig.visualHeight || 134) * advancedScale;
-    const advancedHitboxWidth = activeRenderConfig.hitboxWidth * advancedScale;
-    const advancedHitboxHeight =
-      activeRenderConfig.hitboxHeight * advancedScale;
-    const advancedCenterX = stageSize.width / 2;
-    const advancedCenterY = stageSize.height / 2;
-    const advancedHitboxPosition = getHitboxPosition({
-      displayWidth: advancedDisplayWidth,
-      displayHeight: advancedDisplayHeight,
-      hitboxWidth: advancedHitboxWidth,
-      hitboxHeight: advancedHitboxHeight,
-      hitboxOffsetX: activeRenderConfig.hitboxOffsetX * advancedScale,
-      hitboxOffsetY: activeRenderConfig.hitboxOffsetY * advancedScale
-    });
+  // 预览倍率只改变查看比例，保存的 geometry 始终使用归一化基础值。
+  const advancedPreviewBaseScale =
+    advancedPreviewBaseScaleLock ?? getAdvancedPreviewScale(activeLayout);
+  const advancedScale = advancedPreviewBaseScale * advancedPreviewZoom;
+  const advancedDisplayWidth =
+    activeLayout.displayFrame.width * advancedScale;
+  const advancedDisplayHeight =
+    activeLayout.displayFrame.height * advancedScale;
+  const advancedVisualWidth =
+    (activeRenderConfig.visualWidth || 104) * advancedScale;
+  const advancedVisualHeight =
+    (activeRenderConfig.visualHeight || 134) * advancedScale;
+  const advancedCenterX = stageSize.width / 2;
+  const advancedCenterY = stageSize.height / 2;
+  const advancedDisplayLeft = advancedCenterX - advancedDisplayWidth / 2;
+  const advancedDisplayTop = advancedCenterY - advancedDisplayHeight / 2;
+  const activeLayoutBox =
+    advancedMode === "collision"
+      ? activeLayout.collision
+      : activeLayout.interaction;
+  const advancedVolumeWidth = activeLayoutBox.width * advancedScale;
+  const advancedVolumeHeight = activeLayoutBox.height * advancedScale;
+  const advancedVolumePosition = getLayoutBoxPosition(
+    {
+      width: advancedDisplayWidth,
+      height: advancedDisplayHeight
+    },
+    {
+      width: advancedVolumeWidth,
+      height: advancedVolumeHeight,
+      offsetX: activeLayoutBox.offsetX * advancedScale,
+      offsetY: activeLayoutBox.offsetY * advancedScale
+    },
+    activeLayout.placement.direction
+  );
 
   return (
     <div className="workshop-layout">
@@ -903,7 +981,7 @@ export function WorkshopView() {
                 if (item.id === pet.id) return;
                 if (!(await resolveUnsavedRenderConfig())) return;
                 await updateState({ activePetId: item.id });
-                clearAdvancedRenderDraft(pet.id);
+                clearAdvancedLayoutDraft(pet.id);
                 setMode("edit");
                 setShowAdvanced(false);
               }}
@@ -969,7 +1047,7 @@ export function WorkshopView() {
                   visibility: "visible"
                 }}
                 onClick={() =>
-                  renderConfigDirty ? commitRenderConfig() : savePet(pet)
+                  layoutDirty ? commitRenderConfig() : savePet(pet)
                 }
               >
                 <Save size={16} />
@@ -1033,12 +1111,12 @@ export function WorkshopView() {
               displayHeight={showAdvanced ? advancedDisplayHeight : undefined}
               offsetX={
                 showAdvanced
-                  ? activeRenderConfig.offsetX * advancedScale
+                  ? 0
                   : -28 + activeRenderConfig.offsetX
               }
               offsetY={
                 showAdvanced
-                  ? activeRenderConfig.offsetY * advancedScale
+                  ? 0
                   : activeRenderConfig.offsetY
               }
               anchorBottom={false}
@@ -1075,74 +1153,52 @@ export function WorkshopView() {
           )}
           {mode === "edit" && showAdvanced && (
             <div className="advanced-stage-editor">
-              <div className="advanced-stage-label">高级设置中</div>
-              {advancedMode === "position" && (
-                <div
-                  className="advanced-display-frame advanced-display-frame--guide"
-                  style={{
-                    left: advancedCenterX - advancedDisplayWidth / 2,
-                    top: advancedCenterY - advancedDisplayHeight / 2,
-                    width: advancedDisplayWidth,
-                    height: advancedDisplayHeight
-                  }}
-                  onPointerDown={(event) => beginAdvancedDrag(event, "model")}
-                >
-                  <span className="advanced-frame-label">拖动角色位置</span>
-                </div>
-              )}
-              {advancedMode === "display" && (
-                <div
-                  className="advanced-display-frame"
-                  style={{
-                    left: advancedCenterX - advancedDisplayWidth / 2,
-                    top: advancedCenterY - advancedDisplayHeight / 2,
-                    width: advancedDisplayWidth,
-                    height: advancedDisplayHeight
-                  }}
-                >
-                  <span className="advanced-frame-label">显示画面框</span>
-                  {advancedResizeEdges.map((edge) => (
-                    <span
-                      className={`advanced-resize-edge advanced-resize-edge--${edge}`}
-                      key={edge}
-                      onPointerDown={(event) =>
-                        beginAdvancedResize(event, "display", edge)
-                      }
-                    />
-                  ))}
-                </div>
-              )}
-              {advancedMode === "hitbox" && (
-                <div
-                  className="advanced-hitbox-frame"
-                  style={{
-                    left:
-                      advancedCenterX -
-                      advancedDisplayWidth / 2 +
-                      advancedHitboxPosition.left,
-                    top:
-                      advancedCenterY -
-                      advancedDisplayHeight / 2 +
-                      advancedHitboxPosition.top,
-                    width: advancedHitboxWidth,
-                    height: advancedHitboxHeight
-                  }}
-                  onPointerDown={(event) =>
-                    beginAdvancedDrag(event, "hitboxMove")
-                  }
-                >
-                  <span className="advanced-frame-label">碰撞区域框</span>
-                  {advancedResizeEdges.map((edge) => (
-                    <span
-                      className={`advanced-resize-edge advanced-resize-edge--${edge}`}
-                      key={edge}
-                      onPointerDown={(event) =>
-                        beginAdvancedResize(event, "hitbox", edge)
-                      }
-                    />
-                  ))}
-                </div>
-              )}
+              <div className="advanced-stage-label">角色中心已锁定</div>
+              <div
+                className="advanced-display-frame advanced-display-frame--fixed"
+                style={{
+                  left: advancedDisplayLeft,
+                  top: advancedDisplayTop,
+                  width: advancedDisplayWidth,
+                  height: advancedDisplayHeight
+                }}
+              >
+                <span className="advanced-frame-label">显示框</span>
+                {advancedResizeEdges.map((edge) => (
+                  <span
+                    className={`advanced-resize-edge advanced-resize-edge--${edge}`}
+                    key={edge}
+                    onPointerDown={(event) =>
+                      beginAdvancedResize(event, "display", edge)
+                    }
+                  />
+                ))}
+              </div>
+              <div
+                className={`advanced-volume-frame advanced-volume-frame--${advancedMode}`}
+                style={{
+                  left: advancedDisplayLeft + advancedVolumePosition.left,
+                  top: advancedDisplayTop + advancedVolumePosition.top,
+                  width: advancedVolumeWidth,
+                  height: advancedVolumeHeight
+                }}
+                onPointerDown={(event) =>
+                  beginAdvancedDrag(event, advancedMode)
+                }
+              >
+                <span className="advanced-frame-label">
+                  {advancedMode === "collision" ? "碰撞体积" : "交互范围"}
+                </span>
+                {advancedResizeEdges.map((edge) => (
+                  <span
+                    className={`advanced-resize-edge advanced-resize-edge--${edge}`}
+                    key={edge}
+                    onPointerDown={(event) =>
+                      beginAdvancedResize(event, advancedMode, edge)
+                    }
+                  />
+                ))}
+              </div>
             </div>
           )}
           {mode === "edit" && !showAdvanced && (
@@ -1194,247 +1250,186 @@ export function WorkshopView() {
                 <div className="advanced-mode-tabs">
                   <button
                     className={
-                      advancedMode === "position"
+                      advancedMode === "collision"
                         ? "advanced-mode-button advanced-mode-button--active"
                         : "advanced-mode-button"
                     }
                     type="button"
-                    onClick={() => setAdvancedMode("position")}
+                    onClick={() => setAdvancedMode("collision")}
                   >
-                    角色位置调试
+                    编辑碰撞体积
                   </button>
                   <button
                     className={
-                      advancedMode === "hitbox"
+                      advancedMode === "interaction"
                         ? "advanced-mode-button advanced-mode-button--active"
                         : "advanced-mode-button"
                     }
                     type="button"
-                    onClick={() => setAdvancedMode("hitbox")}
+                    onClick={() => setAdvancedMode("interaction")}
                   >
-                    碰撞区域调试
-                  </button>
-                  <button
-                    className={
-                      advancedMode === "display"
-                        ? "advanced-mode-button advanced-mode-button--active"
-                        : "advanced-mode-button"
-                    }
-                    type="button"
-                    onClick={() => setAdvancedMode("display")}
-                  >
-                    显示画面调试
+                    编辑交互范围
                   </button>
                 </div>
-                  <label className="range-field advanced-preview-zoom">
-                    <span>编辑预览放大</span>
-                    <input
-                      type="range"
-                      min="1"
-                      max="3"
-                      step="0.1"
-                      value={advancedPreviewZoom}
-                      onChange={(event) =>
-                        setAdvancedPreviewZoom(Number(event.target.value))
-                      }
-                    />
-                    <strong>{advancedPreviewZoom.toFixed(2)}x</strong>
-                  </label>
-                <div className="advanced-slider-grid">
-                  {advancedMode === "position" && (
-                    <>
-                      <label className="range-field">
-                        <span>水平位置</span>
-                        <input
-                          type="range"
-                          min="-200"
-                          max="200"
-                          step="2"
-                          value={activeRenderConfig.offsetX}
-                          onChange={(event) => {
-                            const offsetX = Number(event.target.value);
-                            const delta = offsetX - activeRenderConfig.offsetX;
-                            saveRenderConfig({
-                              offsetX,
-                              hitboxOffsetX: Math.round(
-                                activeRenderConfig.hitboxOffsetX + delta
-                              )
-                            });
-                          }}
-                        />
-                        <strong>{activeRenderConfig.offsetX}</strong>
-                      </label>
-                      <label className="range-field">
-                        <span>垂直位置</span>
-                        <input
-                          type="range"
-                          min="-200"
-                          max="200"
-                          step="2"
-                          value={activeRenderConfig.offsetY}
-                          onChange={(event) => {
-                            const offsetY = Number(event.target.value);
-                            const delta = offsetY - activeRenderConfig.offsetY;
-                            saveRenderConfig({
-                              offsetY,
-                              hitboxOffsetY: Math.round(
-                                activeRenderConfig.hitboxOffsetY + delta
-                              )
-                            });
-                          }}
-                        />
-                        <strong>{activeRenderConfig.offsetY}</strong>
-                      </label>
-                    </>
-                  )}
-                  {advancedMode === "hitbox" && (
-                    <>
-                      <label className="range-field">
-                        <span>碰撞宽度</span>
-                        <input
-                          type="range"
-                          min="40"
-                          max="300"
-                          step="2"
-                          value={activeRenderConfig.hitboxWidth}
-                          onChange={(event) =>
-                            saveRenderConfig({
-                              hitboxWidth: Number(event.target.value)
-                            })
-                          }
-                        />
-                        <strong>{activeRenderConfig.hitboxWidth}</strong>
-                      </label>
-                      <label className="range-field">
-                        <span>碰撞高度</span>
-                        <input
-                          type="range"
-                          min="60"
-                          max="420"
-                          step="2"
-                          value={activeRenderConfig.hitboxHeight}
-                          onChange={(event) =>
-                            saveRenderConfig({
-                              hitboxHeight: Number(event.target.value)
-                            })
-                          }
-                        />
-                        <strong>{activeRenderConfig.hitboxHeight}</strong>
-                      </label>
-                      <label className="range-field">
-                        <span>水平偏移</span>
-                        <input
-                          type="range"
-                          min="-200"
-                          max="200"
-                          step="2"
-                          value={activeRenderConfig.hitboxOffsetX}
-                          onChange={(event) =>
-                            saveRenderConfig({
-                              hitboxOffsetX: Number(event.target.value)
-                            })
-                          }
-                        />
-                        <strong>{activeRenderConfig.hitboxOffsetX}</strong>
-                      </label>
-                      <label className="range-field">
-                        <span>垂直偏移</span>
-                        <input
-                          type="range"
-                          min="-200"
-                          max="200"
-                          step="2"
-                          value={activeRenderConfig.hitboxOffsetY}
-                          onChange={(event) =>
-                            saveRenderConfig({
-                              hitboxOffsetY: Number(event.target.value)
-                            })
-                          }
-                        />
-                        <strong>{activeRenderConfig.hitboxOffsetY}</strong>
-                      </label>
-                    </>
-                  )}
-                  {advancedMode === "display" && (
-                    <>
-                      <label className="range-field">
-                        <span>画面宽度</span>
-                        <input
-                          type="range"
-                          min="60"
-                          max="1200"
-                          step="2"
-                          value={activeRenderConfig.displayWidth || 260}
-                          onChange={(event) =>
-                            saveRenderConfig({
-                              displayWidth: Number(event.target.value)
-                            })
-                          }
-                        />
-                        <strong>{activeRenderConfig.displayWidth || 260}</strong>
-                      </label>
-                      <label className="range-field">
-                        <span>画面高度</span>
-                        <input
-                          type="range"
-                          min="80"
-                          max="1400"
-                          step="2"
-                          value={activeRenderConfig.displayHeight || 320}
-                          onChange={(event) =>
-                            saveRenderConfig({
-                              displayHeight: Number(event.target.value)
-                            })
-                          }
-                        />
-                        <strong>{activeRenderConfig.displayHeight || 320}</strong>
-                      </label>
-                      <label className="range-field">
-                        <span>角色宽度</span>
-                        <input
-                          type="range"
-                          min="40"
-                          max="800"
-                          step="2"
-                          value={activeRenderConfig.visualWidth || 104}
-                          onChange={(event) =>
-                            saveRenderConfig({
-                              visualWidth: Number(event.target.value)
-                            })
-                          }
-                        />
-                        <strong>{activeRenderConfig.visualWidth || 104}</strong>
-                      </label>
-                      <label className="range-field">
-                        <span>角色高度</span>
-                        <input
-                          type="range"
-                          min="60"
-                          max="900"
-                          step="2"
-                          value={activeRenderConfig.visualHeight || 134}
-                          onChange={(event) =>
-                            saveRenderConfig({
-                              visualHeight: Number(event.target.value)
-                            })
-                          }
-                        />
-                        <strong>{activeRenderConfig.visualHeight || 134}</strong>
-                      </label>
-                    </>
-                  )}
+                <label className="range-field advanced-preview-zoom">
+                  <span>编辑预览放大</span>
+                  <input
+                    type="range"
+                    min="1"
+                    max="3"
+                    step="0.1"
+                    value={advancedPreviewZoom}
+                    onChange={(event) =>
+                      setAdvancedPreviewZoom(Number(event.target.value))
+                    }
+                  />
+                  <strong>{advancedPreviewZoom.toFixed(2)}x</strong>
+                </label>
+                <div className="advanced-section">
+                  <div className="advanced-section-heading">
+                    <strong>
+                      {advancedMode === "collision"
+                        ? "碰撞体积"
+                        : "交互范围"}
+                    </strong>
+                    <span>归一化像素</span>
+                  </div>
+                  <div className="advanced-number-grid">
+                    <label className="advanced-number-field">
+                      <span>宽度</span>
+                      <input
+                        type="number"
+                        min="20"
+                        max="4000"
+                        step="1"
+                        value={activeLayoutBox.width}
+                        onFocus={(event) => event.currentTarget.select()}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          if (!Number.isFinite(value)) return;
+                          updateLayoutBox(advancedMode, {
+                            width: Math.max(20, Math.round(value))
+                          });
+                        }}
+                      />
+                      <em>px</em>
+                    </label>
+                    <label className="advanced-number-field">
+                      <span>高度</span>
+                      <input
+                        type="number"
+                        min="30"
+                        max="4000"
+                        step="1"
+                        value={activeLayoutBox.height}
+                        onFocus={(event) => event.currentTarget.select()}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          if (!Number.isFinite(value)) return;
+                          updateLayoutBox(advancedMode, {
+                            height: Math.max(30, Math.round(value))
+                          });
+                        }}
+                      />
+                      <em>px</em>
+                    </label>
+                    <label className="advanced-number-field">
+                      <span>水平偏移</span>
+                      <input
+                        type="number"
+                        min="-4000"
+                        max="4000"
+                        step="1"
+                        value={activeLayoutBox.offsetX}
+                        onFocus={(event) => event.currentTarget.select()}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          if (!Number.isFinite(value)) return;
+                          updateLayoutBox(advancedMode, {
+                            offsetX: Math.round(value)
+                          });
+                        }}
+                      />
+                      <em>px</em>
+                    </label>
+                    <label className="advanced-number-field">
+                      <span>垂直偏移</span>
+                      <input
+                        type="number"
+                        min="-4000"
+                        max="4000"
+                        step="1"
+                        value={activeLayoutBox.offsetY}
+                        onFocus={(event) => event.currentTarget.select()}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          if (!Number.isFinite(value)) return;
+                          updateLayoutBox(advancedMode, {
+                            offsetY: Math.round(value)
+                          });
+                        }}
+                      />
+                      <em>px</em>
+                    </label>
+                  </div>
+                </div>
+                <div className="advanced-section">
+                  <div className="advanced-section-heading">
+                    <strong>显示框</strong>
+                    <span>中心固定，仅调整尺寸</span>
+                  </div>
+                  <div className="advanced-number-grid advanced-number-grid--single">
+                    <label className="advanced-number-field">
+                      <span>宽度</span>
+                      <input
+                        type="number"
+                        min="40"
+                        max="4000"
+                        step="1"
+                        value={activeLayout.displayFrame.width}
+                        onFocus={(event) => event.currentTarget.select()}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          if (!Number.isFinite(value)) return;
+                          updateDisplayFrame({
+                            width: Math.max(40, Math.round(value))
+                          });
+                        }}
+                      />
+                      <em>px</em>
+                    </label>
+                    <label className="advanced-number-field">
+                      <span>高度</span>
+                      <input
+                        type="number"
+                        min="60"
+                        max="4000"
+                        step="1"
+                        value={activeLayout.displayFrame.height}
+                        onFocus={(event) => event.currentTarget.select()}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          if (!Number.isFinite(value)) return;
+                          updateDisplayFrame({
+                            height: Math.max(60, Math.round(value))
+                          });
+                        }}
+                      />
+                      <em>px</em>
+                    </label>
+                  </div>
                 </div>
                 <div className="advanced-save-row">
                   <button
                     className="advanced-save-button"
                     type="button"
-                    disabled={!renderConfigDirty}
+                    disabled={!layoutDirty}
                     onClick={() => void commitRenderConfig()}
                   >
                     保存高级设置
                   </button>
                   <span>
-                    {renderConfigDirty
+                    {layoutDirty
                       ? "有未保存的改动"
                       : "当前设置已保存"}
                   </span>
@@ -1889,162 +1884,6 @@ export function WorkshopView() {
         )}
       </aside>
 
-      {false && showAdvanced && mode === "edit" && (
-        <div className="advanced-settings-backdrop">
-          <section className="advanced-settings-dialog">
-            <div className="advanced-settings-header">
-              <div>
-                <span className="section-kicker">高级设置</span>
-                <h2>{pet.name}</h2>
-              </div>
-              <button type="button" onClick={() => setShowAdvanced(false)}>
-                关闭
-              </button>
-            </div>
-
-            <div className="advanced-settings-grid">
-              <label className="range-field">
-                <span>显示宽度</span>
-                <input
-                  type="range"
-                  min="160"
-                  max="800"
-                  step="10"
-                  value={pet.renderConfig?.displayWidth || 260}
-                  onChange={(event) =>
-                    saveRenderConfig({
-                      displayWidth: Number(event.target.value)
-                    })
-                  }
-                />
-                <strong>{pet.renderConfig?.displayWidth || 260}</strong>
-              </label>
-              <label className="range-field">
-                <span>显示高度</span>
-                <input
-                  type="range"
-                  min="180"
-                  max="900"
-                  step="10"
-                  value={pet.renderConfig?.displayHeight || 320}
-                  onChange={(event) =>
-                    saveRenderConfig({
-                      displayHeight: Number(event.target.value)
-                    })
-                  }
-                />
-                <strong>{pet.renderConfig?.displayHeight || 320}</strong>
-              </label>
-              <label className="range-field">
-                <span>碰撞宽度</span>
-                <input
-                  type="range"
-                  min="40"
-                  max="300"
-                  step="2"
-                  value={pet.renderConfig?.hitboxWidth || 104}
-                  onChange={(event) =>
-                    saveRenderConfig({
-                      hitboxWidth: Number(event.target.value)
-                    })
-                  }
-                />
-                <strong>{pet.renderConfig?.hitboxWidth || 104}</strong>
-              </label>
-              <label className="range-field">
-                <span>碰撞高度</span>
-                <input
-                  type="range"
-                  min="60"
-                  max="420"
-                  step="2"
-                  value={pet.renderConfig?.hitboxHeight || 134}
-                  onChange={(event) =>
-                    saveRenderConfig({
-                      hitboxHeight: Number(event.target.value)
-                    })
-                  }
-                />
-                <strong>{pet.renderConfig?.hitboxHeight || 134}</strong>
-              </label>
-              <label className="range-field">
-                <span>水平偏移</span>
-                <input
-                  type="range"
-                  min="-200"
-                  max="200"
-                  step="2"
-                  value={pet.renderConfig?.offsetX || 0}
-                  onChange={(event) => {
-                    const offsetX = Number(event.target.value);
-                    const currentOffsetX = pet.renderConfig?.offsetX || 0;
-                    saveRenderConfig({
-                      offsetX,
-                      hitboxOffsetX: Math.round(
-                        (pet.renderConfig?.hitboxOffsetX || 0) +
-                          offsetX -
-                          currentOffsetX
-                      )
-                    });
-                  }}
-                />
-                <strong>{pet.renderConfig?.offsetX || 0}</strong>
-              </label>
-              <label className="range-field">
-                <span>垂直偏移</span>
-                <input
-                  type="range"
-                  min="-200"
-                  max="200"
-                  step="2"
-                  value={pet.renderConfig?.offsetY || 0}
-                  onChange={(event) => {
-                    const offsetY = Number(event.target.value);
-                    const currentOffsetY = pet.renderConfig?.offsetY || 0;
-                    saveRenderConfig({
-                      offsetY,
-                      hitboxOffsetY: Math.round(
-                        (pet.renderConfig?.hitboxOffsetY || 0) +
-                          offsetY -
-                          currentOffsetY
-                      )
-                    });
-                  }}
-                />
-                <strong>{pet.renderConfig?.offsetY || 0}</strong>
-              </label>
-            </div>
-
-            <div className="advanced-settings-actions">
-              <button
-                type="button"
-                onClick={() =>
-                  saveRenderConfig({
-                    displayWidth: 900,
-                    displayHeight: 760,
-                    hitboxWidth: 104,
-                    hitboxHeight: 134,
-                    offsetX: 0,
-                    offsetY: 0,
-                    hitboxOffsetX: 0,
-                    hitboxOffsetY: 0
-                  })
-                }
-              >
-                自动检测并恢复推荐值
-              </button>
-              <button
-                className="advanced-future-button"
-                type="button"
-                disabled
-                title="后续用于上传整张立绘并自动抠图"
-              >
-                创建平面图片角色（预留）
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
     </div>
   );
 }

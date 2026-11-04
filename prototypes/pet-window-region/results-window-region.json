@@ -1,0 +1,352 @@
+{
+  "mode": "windows-window-region-spike",
+  "generatedAt": "2026-11-04T04:36:42.702Z",
+  "platform": "win32",
+  "environment": {
+    "electron": "33.4.11",
+    "scaleFactor": 1.5,
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1707,
+      "height": 1067
+    },
+    "workArea": {
+      "x": 0,
+      "y": 0,
+      "width": 1707,
+      "height": 1019
+    },
+    "helperDpiAwareness": "PerMonitorV2"
+  },
+  "windows": {
+    "taskbar": {
+      "hwnd": "131540",
+      "rect": {
+        "left": 0,
+        "top": 1528,
+        "right": 2560,
+        "bottom": 1600,
+        "width": 2560,
+        "height": 72
+      }
+    },
+    "petInitialRect": {
+      "left": 180,
+      "top": 180,
+      "right": 633,
+      "bottom": 723,
+      "width": 453,
+      "height": 543
+    },
+    "plannedMove": {
+      "targetX": 1056,
+      "targetY": 1258,
+      "physicalScreenWidth": 2561,
+      "ok": true,
+      "win32Error": 0
+    },
+    "pet": {
+      "hwnd": "855444",
+      "root": "855444",
+      "rect": {
+        "left": 1056,
+        "top": 1258,
+        "right": 1509,
+        "bottom": 1801,
+        "width": 453,
+        "height": 543
+      }
+    },
+    "probePoints": {
+      "blockCenter": {
+        "x": 1281,
+        "y": 1528
+      },
+      "aboveEdge": {
+        "x": 1281,
+        "y": 1498
+      },
+      "insideBand": {
+        "x": 1281,
+        "y": 1558
+      },
+      "taskbarTop": 1528
+    },
+    "baseline": {
+      "aboveEdge": {
+        "point": {
+          "x": 1281,
+          "y": 1498
+        },
+        "pixel": {
+          "g": 128,
+          "r": 238,
+          "hex": "#EE8031",
+          "b": 49
+        },
+        "windowFromPoint": "855444"
+      },
+      "insideBand": {
+        "point": {
+          "x": 1281,
+          "y": 1558
+        },
+        "pixel": {
+          "g": 128,
+          "r": 238,
+          "hex": "#EE8031",
+          "b": 49
+        },
+        "windowFromPoint": "855444"
+      }
+    },
+    "nativeRegionCall": {
+      "ok": true,
+      "detail": "window 453x543, cut 0,270,453,342"
+    },
+    "nativeRegion": {
+      "aboveEdgeImmediately": {
+        "point": {
+          "x": 1281,
+          "y": 1498
+        },
+        "pixel": {
+          "g": 128,
+          "r": 238,
+          "hex": "#EE8031",
+          "b": 49
+        },
+        "windowFromPoint": "855444"
+      },
+      "insideBandImmediately": {
+        "point": {
+          "x": 1281,
+          "y": 1558
+        },
+        "pixel": {
+          "g": 238,
+          "r": 238,
+          "hex": "#EEEEEE",
+          "b": 238
+        },
+        "windowFromPoint": "131540"
+      },
+      "insideBandAfterSettling": {
+        "point": {
+          "x": 1281,
+          "y": 1558
+        },
+        "pixel": {
+          "g": 238,
+          "r": 238,
+          "hex": "#EEEEEE",
+          "b": 238
+        },
+        "windowFromPoint": "131540"
+      }
+    },
+    "rendererClip": {
+      "clipBottomDip": 180,
+      "windowHeightDip": 360
+    },
+    "rendererClipResult": {
+      "aboveEdge": {
+        "point": {
+          "x": 1281,
+          "y": 1498
+        },
+        "pixel": {
+          "g": 128,
+          "r": 238,
+          "hex": "#EE8031",
+          "b": 49
+        },
+        "windowFromPoint": "855444"
+      },
+      "insideBand": {
+        "point": {
+          "x": 1281,
+          "y": 1558
+        },
+        "pixel": {
+          "g": 238,
+          "r": 238,
+          "hex": "#EEEEEE",
+          "b": 238
+        },
+        "windowFromPoint": "855444"
+      }
+    }
+  },
+  "checks": {
+    "baselineTopmostPetCoversTaskbar": {
+      "pass": true,
+      "detail": {
+        "note": "Without a clip the pet owns the pixels inside the taskbar band; this is the problem being solved.",
+        "aboveEdge": {
+          "point": {
+            "x": 1281,
+            "y": 1498
+          },
+          "pixel": {
+            "g": 128,
+            "r": 238,
+            "hex": "#EE8031",
+            "b": 49
+          },
+          "windowFromPoint": "855444"
+        },
+        "insideBand": {
+          "point": {
+            "x": 1281,
+            "y": 1558
+          },
+          "pixel": {
+            "g": 128,
+            "r": 238,
+            "hex": "#EE8031",
+            "b": 49
+          },
+          "windowFromPoint": "855444"
+        },
+        "petRoot": "855444",
+        "taskbarTop": 1528
+      }
+    },
+    "nativeSetWindowRgnClipsTaskbarBand": {
+      "pass": true,
+      "detail": {
+        "note": "SetWindowRgn on a Chromium transparent window: set() reports success but the composited pixels stay.",
+        "call": {
+          "ok": true,
+          "detail": "window 453x543, cut 0,270,453,342"
+        },
+        "aboveEdge": {
+          "point": {
+            "x": 1281,
+            "y": 1498
+          },
+          "pixel": {
+            "g": 128,
+            "r": 238,
+            "hex": "#EE8031",
+            "b": 49
+          },
+          "windowFromPoint": "855444"
+        },
+        "insideBandImmediately": {
+          "point": {
+            "x": 1281,
+            "y": 1558
+          },
+          "pixel": {
+            "g": 238,
+            "r": 238,
+            "hex": "#EEEEEE",
+            "b": 238
+          },
+          "windowFromPoint": "131540"
+        },
+        "insideBandAfterSettling": {
+          "point": {
+            "x": 1281,
+            "y": 1558
+          },
+          "pixel": {
+            "g": 238,
+            "r": 238,
+            "hex": "#EEEEEE",
+            "b": 238
+          },
+          "windowFromPoint": "131540"
+        },
+        "petRoot": "855444"
+      }
+    },
+    "rendererClipStillPaintsAboveTaskbar": {
+      "pass": true,
+      "detail": {
+        "point": {
+          "x": 1281,
+          "y": 1498
+        },
+        "result": {
+          "point": {
+            "x": 1281,
+            "y": 1498
+          },
+          "pixel": {
+            "g": 128,
+            "r": 238,
+            "hex": "#EE8031",
+            "b": 49
+          },
+          "windowFromPoint": "855444"
+        },
+        "petRoot": "855444"
+      }
+    },
+    "rendererClipHidesTaskbarBand": {
+      "pass": true,
+      "detail": {
+        "point": {
+          "x": 1281,
+          "y": 1558
+        },
+        "result": {
+          "point": {
+            "x": 1281,
+            "y": 1558
+          },
+          "pixel": {
+            "g": 238,
+            "r": 238,
+            "hex": "#EEEEEE",
+            "b": 238
+          },
+          "windowFromPoint": "855444"
+        },
+        "petRoot": "855444",
+        "taskbarTop": 1528,
+        "note": "Only the pixels matter here: the window rect and its region stay untouched."
+      }
+    },
+    "rendererClipCanBeCleared": {
+      "pass": true,
+      "detail": {
+        "point": {
+          "x": 1281,
+          "y": 1558
+        },
+        "result": {
+          "point": {
+            "x": 1281,
+            "y": 1558
+          },
+          "pixel": {
+            "g": 128,
+            "r": 238,
+            "hex": "#EE8031",
+            "b": 49
+          },
+          "windowFromPoint": "855444"
+        },
+        "petRoot": "855444"
+      }
+    }
+  },
+  "errors": [],
+  "summary": {
+    "passed": 5,
+    "failed": 0
+  },
+  "windowsHelper": {
+    "started": true,
+    "stopped": true
+  },
+  "helper": {
+    "started": true,
+    "stopped": true
+  }
+}

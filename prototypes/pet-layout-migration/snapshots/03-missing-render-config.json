@@ -1,0 +1,110 @@
+{
+  "fixture": "fixture-c-missing-render-config",
+  "changed": true,
+  "source": "defaults",
+  "warnings": [
+    "missing-render-config"
+  ],
+  "defaultsUsed": [
+    "hitboxWidth",
+    "hitboxHeight",
+    "displayWidth",
+    "displayHeight",
+    "visualWidth",
+    "visualHeight",
+    "hitboxOffsetX",
+    "hitboxOffsetY"
+  ],
+  "legacy": {
+    "renderConfig": null,
+    "desktopRenderConfig": null,
+    "desktopPosition": {
+      "x": 100,
+      "y": 200,
+      "direction": -1
+    },
+    "droppedOffsetX": null,
+    "droppedOffsetY": null,
+    "direction": -1,
+    "alternativePlacement": {
+      "x": 152,
+      "y": 174
+    }
+  },
+  "layout": {
+    "layoutVersion": 3,
+    "displayFrame": {
+      "width": 260,
+      "height": 320
+    },
+    "collision": {
+      "width": 104,
+      "height": 134,
+      "offsetX": 0,
+      "offsetY": 93
+    },
+    "interaction": {
+      "width": 104,
+      "height": 134,
+      "offsetX": 0,
+      "offsetY": 93
+    },
+    "placement": {
+      "x": 152,
+      "y": 267,
+      "direction": -1
+    }
+  },
+  "legacyWorld": {
+    "displayCenter": {
+      "x": 152,
+      "y": 174
+    },
+    "collisionRect": {
+      "left": 100,
+      "top": 200,
+      "right": 204,
+      "bottom": 334,
+      "centerX": 152,
+      "centerY": 267
+    }
+  },
+  "migratedWorld": {
+    "displayCenter": {
+      "x": 152,
+      "y": 174
+    },
+    "displayFrame": {
+      "left": 22,
+      "top": 14,
+      "right": 282,
+      "bottom": 334
+    },
+    "collisionRect": {
+      "left": 100,
+      "top": 200,
+      "right": 204,
+      "bottom": 334,
+      "centerX": 152,
+      "centerY": 267
+    },
+    "interactionRect": {
+      "left": 100,
+      "top": 200,
+      "right": 204,
+      "bottom": 334,
+      "centerX": 152,
+      "centerY": 267
+    }
+  },
+  "invariants": {
+    "collisionCenterPreserved": true,
+    "displayCenterPreserved": true,
+    "collisionSizePreserved": true,
+    "interactionEqualsCollision": true
+  },
+  "droppedVisualOffset": {
+    "x": 0,
+    "y": 0
+  }
+}

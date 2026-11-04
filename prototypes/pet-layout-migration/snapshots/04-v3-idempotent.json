@@ -1,0 +1,77 @@
+{
+  "fixture": "fixture-a-arkpet-2.2.0",
+  "run1": {
+    "layoutVersion": 3,
+    "displayFrame": {
+      "width": 300,
+      "height": 323
+    },
+    "collision": {
+      "width": 96,
+      "height": 96,
+      "offsetX": 0,
+      "offsetY": 113.5
+    },
+    "interaction": {
+      "width": 96,
+      "height": 96,
+      "offsetX": 0,
+      "offsetY": 113.5
+    },
+    "placement": {
+      "x": 818,
+      "y": 1019,
+      "direction": 1
+    }
+  },
+  "run2": {
+    "layoutVersion": 3,
+    "displayFrame": {
+      "width": 300,
+      "height": 323
+    },
+    "collision": {
+      "width": 96,
+      "height": 96,
+      "offsetX": 0,
+      "offsetY": 113.5
+    },
+    "interaction": {
+      "width": 96,
+      "height": 96,
+      "offsetX": 0,
+      "offsetY": 113.5
+    },
+    "placement": {
+      "x": 818,
+      "y": 1019,
+      "direction": 1
+    }
+  },
+  "run3": {
+    "layoutVersion": 3,
+    "displayFrame": {
+      "width": 300,
+      "height": 323
+    },
+    "collision": {
+      "width": 96,
+      "height": 96,
+      "offsetX": 0,
+      "offsetY": 113.5
+    },
+    "interaction": {
+      "width": 96,
+      "height": 96,
+      "offsetX": 0,
+      "offsetY": 113.5
+    },
+    "placement": {
+      "x": 818,
+      "y": 1019,
+      "direction": 1
+    }
+  },
+  "identical": true,
+  "corruptedLegacyIgnored": true
+}

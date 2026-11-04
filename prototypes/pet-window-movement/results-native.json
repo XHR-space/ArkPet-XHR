@@ -1,0 +1,19 @@
+{
+  "mode": "native",
+  "frames": 836,
+  "scheduledFrames": 836,
+  "skippedLateFrames": 3,
+  "elapsedSeconds": 14.011,
+  "fps": 59.67,
+  "moveCall": {
+    "avgMs": 0.0774,
+    "p50Ms": 0.0769,
+    "p95Ms": 0.1144,
+    "maxMs": 0.2317
+  },
+  "nativeHelper": {
+    "backpressureEvents": 0,
+    "errorCount": 0,
+    "lastError": null
+  }
+}

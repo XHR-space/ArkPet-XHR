@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ArkPet z-order spike - dummy application window</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #1f2733;
+        color: #e6edf3;
+        font-family: "Segoe UI", sans-serif;
+      }
+
+      main {
+        padding: 16px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+
+      p {
+        margin: 0 0 12px;
+        font-size: 12px;
+        color: #9fb0c3;
+      }
+
+      input {
+        width: 180px;
+        padding: 6px 8px;
+        font-size: 12px;
+        border: 1px solid #46566a;
+        border-radius: 4px;
+        background: #131922;
+        color: #e6edf3;
+      }
+
+      button {
+        padding: 6px 10px;
+        font-size: 12px;
+        border: 1px solid #46566a;
+        border-radius: 4px;
+        background: #2b3847;
+        color: #e6edf3;
+        cursor: pointer;
+      }
+
+      #log {
+        margin-top: 14px;
+        font-size: 11px;
+        line-height: 1.6;
+        color: #86e0a0;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>dummy application window</h1>
+      <p>Stands in for a normal foreground app while the pet window is tested.</p>
+      <input id="text" type="text" placeholder="type here to check focus" />
+      <button id="button" type="button">button</button>
+      <div id="log">events:</div>
+    </main>
+    <script>
+      const { ipcRenderer } = require("electron");
+      const logElement = document.getElementById("log");
+      let count = 0;
+
+      function report(type) {
+        count += 1;
+        logElement.textContent += `\n${count}. ${type} @ ${new Date().toLocaleTimeString()}`;
+        ipcRenderer.send("pet-window-event", { window: "dummy", type, at: Date.now() });
+      }
+
+      document.addEventListener("mousedown", () => report("mousedown"));
+      document.addEventListener("mouseup", () => report("mouseup"));
+      window.addEventListener("focus", () => report("focus"));
+      window.addEventListener("blur", () => report("blur"));
+      document.getElementById("button").addEventListener("click", () => report("button"));
+    </script>
+  </body>
+</html>

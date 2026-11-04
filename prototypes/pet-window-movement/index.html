@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pet Window Movement POC</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+
+      body {
+        display: grid;
+        place-items: center;
+      }
+
+      .flicker-marker {
+        position: fixed;
+        top: 4px;
+        left: 4px;
+        width: 16px;
+        height: 16px;
+        background: #ff00ff;
+        pointer-events: none;
+      }
+
+      main {
+        width: 230px;
+        height: 310px;
+        display: grid;
+        align-content: center;
+        justify-items: center;
+      }
+
+      .pet {
+        width: 190px;
+        height: 250px;
+        filter: drop-shadow(0 14px 14px rgb(21 40 62 / 22%));
+      }
+
+      .label {
+        margin-top: 4px;
+        padding: 5px 10px;
+        border: 1px solid rgb(25 55 74 / 22%);
+        border-radius: 999px;
+        color: #18384c;
+        background: rgb(238 249 255 / 92%);
+        box-shadow: 0 4px 12px rgb(21 40 62 / 12%);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="flicker-marker" aria-hidden="true"></div>
+    <main>
+      <svg class="pet" viewBox="0 0 190 250" role="img" aria-label="桌宠移动性能测试占位角色">
+        <defs>
+          <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#fdfefe" />
+            <stop offset="0.62" stop-color="#d7ebf5" />
+            <stop offset="1" stop-color="#9ec9dc" />
+          </linearGradient>
+          <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#29a7a0" />
+            <stop offset="1" stop-color="#166d86" />
+          </linearGradient>
+        </defs>
+
+        <ellipse cx="95" cy="225" rx="62" ry="13" fill="rgb(26 55 71 / 15%)" />
+        <path
+          d="M40 211c-10-42-3-105 18-132 14-18 60-18 74 0 21 27 28 90 18 132z"
+          fill="url(#body)"
+          stroke="#2f687e"
+          stroke-width="5"
+        />
+        <path
+          d="M57 86c7-32 69-43 79-3 5 20-3 40-10 49H66c-7-11-13-28-9-46z"
+          fill="#f8fcfe"
+          stroke="#2f687e"
+          stroke-width="5"
+        />
+        <path
+          d="M58 64 42 37l31 13M132 64l16-27-31 13"
+          fill="url(#accent)"
+          stroke="#2f687e"
+          stroke-linejoin="round"
+          stroke-width="5"
+        />
+        <rect x="66" y="83" width="58" height="36" rx="16" fill="#15364b" />
+        <circle cx="83" cy="101" r="6" fill="#a9f5ec" />
+        <circle cx="108" cy="101" r="6" fill="#a9f5ec" />
+        <path d="M87 127q8 7 16 0" fill="none" stroke="#2f687e" stroke-linecap="round" stroke-width="4" />
+        <path
+          d="M70 140c11 16 39 16 50 0"
+          fill="none"
+          stroke="#75b4c9"
+          stroke-linecap="round"
+          stroke-width="6"
+        />
+        <path d="M55 168c-21 3-34 17-38 36M135 168c21 3 34 17 38 36" fill="none" stroke="#2f687e" stroke-linecap="round" stroke-width="10" />
+        <path d="M75 208v28M115 208v28" stroke="#2f687e" stroke-linecap="round" stroke-width="13" />
+        <path d="M60 239h31M99 239h31" stroke="url(#accent)" stroke-linecap="round" stroke-width="14" />
+      </svg>
+      <div class="label">Window movement POC</div>
+    </main>
+  </body>
+</html>
+

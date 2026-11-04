@@ -2,6 +2,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 
+const { ensurePetLayouts } = require("./pet-layout.cjs");
+
 const STATE_FILE = "desk-pet-state.json";
 
 const SAVE_DELAY_MS = 100;
@@ -923,6 +925,10 @@ function ensureShape(raw) {
         )
       : [];
   }
+  // v3 桌面布局：归一化后为每只桌宠增量补上 layout 字段。
+  // 只新增 pet.layout，保留 renderConfig / desktopRenderConfig / desktopPosition
+  // 等全部旧字段以便回滚；已带 layoutVersion 3 的记录不会被重算，保证幂等加载。
+  ensurePetLayouts(merged.pets);
   return merged;
 }
 
@@ -971,6 +977,9 @@ class Store {
     }
 
     this.loadPetStore();
+    // loadPetStore 可能并入主存档里没有的桌宠，这些记录没有经过 ensureShape，
+    // 这里再补一次，保证加载完成后每只桌宠都带有 v3 layout。
+    ensurePetLayouts(this.state.pets);
     this.flushSave();
     return this.state;
   }
