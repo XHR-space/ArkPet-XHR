@@ -206,7 +206,6 @@ function createDefaultState() {
       overlay: {
         visibleOnStart: true,
         alwaysOnTop: true,
-        includeTaskbarArea: true,
         perPetWindows: false,
         gravity: 1800,
         walkSpeed: 63,

@@ -410,6 +410,9 @@ class PetWindowRuntime {
       typeof options.onPlacementSettled === "function"
         ? options.onPlacementSettled
         : null;
+    // 模组平台（桌面图标 / 攀爬落脚点）由主进程按宠物过滤后提供；没装模组应返回空数组。
+    this.getPlatforms =
+      typeof options.getPlatforms === "function" ? options.getPlatforms : null;
     this.platform = options.platform || process.platform;
     this.windows = new Map();
     this.disposed = false;
@@ -897,7 +900,6 @@ class PetWindowRuntime {
   }
 
   _broadcastPlatforms() {
-    const payload = { platforms: [] };
     for (const entry of this.windows.values()) {
       if (
         entry.destroyed ||
@@ -907,8 +909,22 @@ class PetWindowRuntime {
       ) {
         continue;
       }
-      entry.window.webContents.send("pet-window:platforms", payload);
+      let platforms = [];
+      if (this.getPlatforms) {
+        try {
+          const value = this.getPlatforms(entry.petId);
+          if (Array.isArray(value)) platforms = value;
+        } catch (error) {
+          this.logger.warn?.("[pet-window-runtime] platforms failed", error);
+        }
+      }
+      entry.window.webContents.send("pet-window:platforms", { platforms });
     }
+  }
+
+  /** 模组状态或平台位置变化后由主进程调用，重新下发平台列表。 */
+  refreshPlatforms() {
+    this._broadcastPlatforms();
   }
 
   _peerRect(entry) {

@@ -1024,7 +1024,10 @@ function rendererUrl(view) {
 function broadcastState() {
   if (!store) return;
   const state = store.get();
-  if (petWindowRuntime) petWindowRuntime.sync(state);
+  if (petWindowRuntime) {
+    petWindowRuntime.sync(state);
+    petWindowRuntime.refreshPlatforms?.();
+  }
   const moduleWindowIds = new Set();
   const interactionWindowIds = new Set();
   for (const moduleWindow of externalModuleWindows.values()) {
@@ -1057,6 +1060,21 @@ function broadcastState() {
 }
 
 function broadcastClimbPlatform(payload) {
+  // 每角色窗口也需要这些落脚点：缓存成物理像素，并让运行时重新下发。
+  if (payload && typeof payload.petId === "string") {
+    if (payload.closed) {
+      petClimbPlatforms.delete(payload.petId);
+    } else if (Number.isFinite(payload.x) && Number.isFinite(payload.y)) {
+      const scale = desktopScaleFactor();
+      petClimbPlatforms.set(payload.petId, {
+        x: Math.round(payload.x * scale),
+        y: Math.round(payload.y * scale),
+        width: Math.round(Number(payload.width || 0) * scale),
+        height: Math.round(Number(payload.height || 0) * scale)
+      });
+    }
+    void petWindowRuntime?.refreshPlatforms?.();
+  }
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {
       window.webContents.send("overlay:climb-platform", payload);
@@ -3521,6 +3539,89 @@ function preserveAuthoritativeDesktopPositions(patch) {
  * runtime 在目标位置稳定约 400ms 后回调（不每帧写盘），这里把物理像素换算成
  * layout.placement 的逻辑单位写进存档。不广播状态，避免渲染进程来回抖动。
  */
+/* ------------------------------------------------------------------ */
+/* 模组平台：只有装了 climb-platforms 模组时才下发给每角色窗口（规格 §5） */
+/* ------------------------------------------------------------------ */
+
+/** 攀爬落脚点：来自 broadcastClimbPlatform，按宠缓存（物理像素）。 */
+const petClimbPlatforms = new Map();
+
+/** 桌面图标平台缓存：异步取一次，15 秒内不重复取。 */
+let desktopIconPlatformCache = { rects: [], fetchedAt: 0, pending: false };
+
+function hasClimbPlatformsModule(pet, state) {
+  const bound = Array.isArray(pet?.modulePlugins?.boundModuleIds)
+    ? pet.modulePlugins.boundModuleIds
+    : [];
+  if (!bound.length) return false;
+  return (Array.isArray(state?.customModules) ? state.customModules : []).some(
+    (module) =>
+      module &&
+      bound.includes(module.id) &&
+      module.builtinType === "climb-platforms" &&
+      module.enabled !== false
+  );
+}
+
+function desktopScaleFactor() {
+  const display = screen.getPrimaryDisplay();
+  const scale = Number(display?.scaleFactor);
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+
+function refreshDesktopIconPlatforms() {
+  const now = Date.now();
+  if (desktopIconPlatformCache.pending) return;
+  if (now - desktopIconPlatformCache.fetchedAt < 15000) return;
+  desktopIconPlatformCache.pending = true;
+  void getDesktopIcons()
+    .then((icons) => {
+      const scale = desktopScaleFactor();
+      desktopIconPlatformCache = {
+        rects: (Array.isArray(icons) ? icons : [])
+          .filter(
+            (icon) =>
+              Number.isFinite(icon?.x) &&
+              Number.isFinite(icon?.y) &&
+              Number(icon?.width) > 0 &&
+              Number(icon?.height) > 0
+          )
+          .map((icon, index) => ({
+            id: "desktop-icon:" + (icon.name || index),
+            kind: "desktop-icon",
+            rect: {
+              x: Math.round(icon.x * scale),
+              y: Math.round(icon.y * scale),
+              width: Math.round(icon.width * scale),
+              height: Math.round(icon.height * scale)
+            }
+          })),
+        fetchedAt: Date.now(),
+        pending: false
+      };
+    })
+    .catch(() => {
+      desktopIconPlatformCache.pending = false;
+    });
+}
+
+/** 返回某只宠物可站立的平台（物理像素）。没装模组 → 空数组。 */
+function getPetPlatforms(petId) {
+  if (!store) return [];
+  const state = store.get();
+  const pet = (Array.isArray(state?.pets) ? state.pets : []).find(
+    (item) => item.id === petId
+  );
+  if (!pet || !hasClimbPlatformsModule(pet, state)) return [];
+  const platforms = [];
+  const climbRect = petClimbPlatforms.get(petId);
+  if (climbRect) {
+    platforms.push({ id: "climb:" + petId, kind: "climb", rect: climbRect });
+  }
+  refreshDesktopIconPlatforms();
+  for (const item of desktopIconPlatformCache.rects) platforms.push(item);
+  return platforms;
+}
 function persistPetWindowPlacement(petId, physicalPlacement, meta) {
   if (!store || !isPlainObject(physicalPlacement)) return false;
   const currentState = store.get();
@@ -5432,6 +5533,7 @@ if (!singleInstance) {
       onPlacementSettled: (petId, physicalPlacement, meta) => {
         persistPetWindowPlacement(petId, physicalPlacement, meta);
       },
+      getPlatforms: (petId) => getPetPlatforms(petId),
       logger: console
     });
     createControlWindow();
