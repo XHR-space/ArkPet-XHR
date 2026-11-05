@@ -838,3 +838,76 @@ body.bubble-document #root {
   font-style: normal;
 }
 
+/* 第三阶段：每角色窗口（?view=pet-window）单宠视图 */
+.pet-window-document {
+  overflow: hidden;
+  background: transparent !important;
+}
+
+.pet-window-document #root {
+  background: transparent;
+}
+
+.pet-window-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+}
+
+.pet-window-frame {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.pet-window-visual {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transform-origin: 50% 100%;
+  transition: transform 180ms ease;
+}
+
+.pet-window-visual--left {
+  transform: scaleX(-1);
+}
+
+.pet-window-spine {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.pet-window-interaction {
+  position: absolute;
+  cursor: grab;
+}
+
+.pet-window-interaction:active {
+  cursor: grabbing;
+}
+
+.pet-window-menu {
+  position: absolute;
+  pointer-events: auto;
+}
+
+.pet-window-bubble {
+  position: absolute;
+  z-index: 20;
+  min-height: 30px;
+  padding: 7px 10px;
+  border: 1px solid #d9d7d0;
+  border-radius: 8px;
+  background: #f7f5ef;
+  box-shadow: 0 8px 22px rgba(20, 30, 46, 0.18);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+}
+

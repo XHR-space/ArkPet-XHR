@@ -6,6 +6,13 @@ function subscribe(channel, callback) {
   return () => ipcRenderer.removeListener(channel, listener);
 }
 
+function petWindowPayload(value, key, nextValue) {
+  if (value && typeof value === "object") return value;
+  const payload = { petId: value };
+  if (key) payload[key] = nextValue;
+  return payload;
+}
+
 const foodDropCallbacks = new Set();
 
 function emitFoodDrop(payload) {
@@ -98,6 +105,31 @@ contextBridge.exposeInMainWorld("deskPet", {
   onPetInput: (callback) => subscribe("overlay:pet-input", callback),
   setPetInputSuppressed: (petId, suppressed) =>
     ipcRenderer.send("overlay:pet-input-suppressed", { petId, suppressed }),
+  movePetWindow: (petId, physicalX, physicalY) =>
+    ipcRenderer.invoke("pet-window:move", petId, physicalX, physicalY),
+  petWindowReady: (value) =>
+    ipcRenderer.send("pet-window:ready", petWindowPayload(value)),
+  petWindowTarget: (value, x, y) => {
+    const payload =
+      value && typeof value === "object" ? value : { petId: value, x, y };
+    return ipcRenderer.send("pet-window:target", payload);
+  },
+  petWindowIgnoreMouse: (value, ignore) =>
+    ipcRenderer.send(
+      "pet-window:ignore-mouse",
+      petWindowPayload(value, "ignore", ignore)
+    ),
+  petWindowFocus: (value, take) =>
+    ipcRenderer.send("pet-window:focus", petWindowPayload(value, "take", take)),
+  onPetWindowInit: (callback) => subscribe("pet-window:init", callback),
+  onPetWindowMetrics: (callback) => subscribe("pet-window:metrics", callback),
+  onPetWindowPeers: (callback) => subscribe("pet-window:peers", callback),
+  onPetWindowPlatforms: (callback) =>
+    subscribe("pet-window:platforms", callback),
+  onPetWindowSetIgnoreMouse: (callback) =>
+    subscribe("pet-window:set-ignore-mouse", callback),
+  onPetWindowRequestMouseState: (callback) =>
+    subscribe("pet-window:set-ignore-mouse", callback),
   beginGlobalDrag: () => ipcRenderer.invoke("overlay:global-drag-start"),
   endGlobalDrag: () => ipcRenderer.invoke("overlay:global-drag-end"),
   onGlobalDrag: (callback) => subscribe("overlay:global-drag", callback),
@@ -221,5 +253,31 @@ contextBridge.exposeInMainWorld("deskPet", {
   onOverlaySettings: (callback) => subscribe("overlay:settings", callback),
   onClimbPlatformChanged: (callback) =>
     subscribe("overlay:climb-platform", callback),
-  onDisplayChanged: (callback) => subscribe("display:changed", callback)
+  onDisplayChanged: (callback) => subscribe("display:changed", callback),
+  petWindow: {
+    ready: (value) =>
+      ipcRenderer.send("pet-window:ready", petWindowPayload(value)),
+    target: (value, x, y) => {
+      const payload =
+        value && typeof value === "object"
+          ? value
+          : { petId: value, x, y };
+      return ipcRenderer.send("pet-window:target", payload);
+    },
+    ignoreMouse: (value, ignore) =>
+      ipcRenderer.send(
+        "pet-window:ignore-mouse",
+        petWindowPayload(value, "ignore", ignore)
+      ),
+    focus: (value, take) =>
+      ipcRenderer.send("pet-window:focus", petWindowPayload(value, "take", take)),
+    onInit: (callback) => subscribe("pet-window:init", callback),
+    onMetrics: (callback) => subscribe("pet-window:metrics", callback),
+    onPeers: (callback) => subscribe("pet-window:peers", callback),
+    onPlatforms: (callback) => subscribe("pet-window:platforms", callback),
+    onSetIgnoreMouse: (callback) =>
+      subscribe("pet-window:set-ignore-mouse", callback),
+    onRequestMouseState: (callback) =>
+      subscribe("pet-window:set-ignore-mouse", callback)
+  }
 });

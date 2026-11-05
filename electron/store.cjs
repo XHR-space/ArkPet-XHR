@@ -207,6 +207,7 @@ function createDefaultState() {
         visibleOnStart: true,
         alwaysOnTop: true,
         includeTaskbarArea: true,
+        perPetWindows: false,
         gravity: 1800,
         walkSpeed: 63,
         scale: 1,

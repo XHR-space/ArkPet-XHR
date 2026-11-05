@@ -434,6 +434,11 @@ export type AppSettings = {
     visibleOnStart: boolean;
     alwaysOnTop: boolean;
     includeTaskbarArea: boolean;
+    /**
+     * 每角色独立窗口（第三阶段）。默认 false，即沿用旧的全屏 overlay。
+     * 打开后主进程为每只角色建一个原生窗口，前端用 ?view=pet-window 承载。
+     */
+    perPetWindows?: boolean;
     gravity: number;
     walkSpeed: number;
     scale: number;
@@ -668,6 +673,77 @@ export type PetChatState = {
   open: boolean;
 };
 
+// ===== 每角色窗口（pet-window）契约类型，第三阶段 =====
+
+export type PetWindowRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** 主进程的线上格式同时带 w/h；读取时以 width/height 优先，w/h 兜底。 */
+  w?: number;
+  h?: number;
+};
+
+/**
+ * 显示器 / 任务栏度量。单位与窗口几何一致（`pet-window:init` 下发的同一套单位）。
+ * `taskbar` 为 null 表示拿不到任务栏矩形；规格要求此时仍保留碰撞边界，
+ * 由主进程补一个等价的屏幕底边矩形。
+ */
+export type PetWindowMetrics = {
+  bounds: PetWindowRect;
+  workArea: PetWindowRect;
+  taskbar: PetWindowRect | null;
+};
+
+export type PetWindowPeer = {
+  petId: string;
+  rect: PetWindowRect;
+  direction?: number;
+};
+
+export type PetWindowPlatform = {
+  id: string;
+  rect: PetWindowRect;
+  kind?: string;
+};
+
+/**
+ * `pet-window:init` 载荷：窗口几何规则见 prototypes/pet-window-runtime/PHASE3-TASKS.md §1。
+ *
+ * 单位：`windowSize` / `frameOffsetInWindow` / `collisionInWindow` / `interactionInWindow`
+ * 与 `pet-window:target`、`pet-window:peers` 一样都是**物理像素**（主进程按
+ * `layout × scale × displayScaleFactor` 计算）；`scale` 是逻辑缩放
+ * （overlay.scale × pet.scale），`layout` 是归一化布局，两者相乘得到逻辑尺寸。
+ * 前端只按这里的偏移摆放显示框 / 交互范围，并保持物理身体等于碰撞体积。
+ */
+export type PetWindowInitPayload = {
+  petId: string;
+  scale: number;
+  windowSize: { w: number; h: number };
+  frameOffsetInWindow: { x: number; y: number };
+  collisionInWindow: PetWindowRect;
+  interactionInWindow: PetWindowRect;
+  metrics: PetWindowMetrics;
+  layout?: PetDesktopLayout | null;
+};
+
+export type PetWindowIgnoreMousePayload = {
+  petId: string;
+  ignore: boolean;
+};
+
+export type PetWindowTargetPayload = {
+  petId: string;
+  x: number;
+  y: number;
+};
+
+export type PetWindowFocusPayload = {
+  petId: string;
+  take: boolean;
+};
+
 export type DeskPetApi = {
   physicsDebug: boolean;
   debugPhysicsLog: (message: string) => void;
@@ -683,6 +759,10 @@ export type DeskPetApi = {
       vitals?: Partial<PetVitals>;
       moduleState?: Record<string, Record<string, PetModuleStateValue>>;
       desktopPosition?: PetDesktopPosition;
+      /**
+       * v3 布局。碰撞体位置以 `placement`（逻辑单位）为准；主进程未支持时忽略。
+       */
+      layout?: PetDesktopLayout;
     }
   ) => Promise<AppState>;
   importVoiceLines: (petId: string) => Promise<{
@@ -730,6 +810,54 @@ export type DeskPetApi = {
   overlayCommand: (command: OverlayCommand) => Promise<AppState>;
   hideOverlay: () => Promise<boolean>;
   setOverlayMouseIgnore: (ignore: boolean) => void;
+  // ===== 每角色窗口（pet-window）桥接，第三阶段 =====
+  // 以下方法由主进程 preload 暴露；后端尚未接通时前端会逐项降级，不会报错。
+  // 说明：主进程 preload 同时提供扁平方法与 petWindow.* 命名空间，二者语义一致。
+  movePetWindow?: (
+    petId: string,
+    x: number,
+    y: number
+  ) => Promise<unknown>;
+  petWindowReady?: (petId: string) => void;
+  petWindowTarget?: (petId: string, x: number, y: number) => void;
+  petWindowIgnoreMouse?: (petId: string, ignore: boolean) => void;
+  petWindowFocus?: (petId: string, take: boolean) => void;
+  onPetWindowInit?: (
+    callback: (payload: PetWindowInitPayload) => void
+  ) => () => void;
+  onPetWindowMetrics?: (
+    callback: (payload: PetWindowMetrics) => void
+  ) => () => void;
+  onPetWindowPeers?: (
+    callback: (payload: { peers: PetWindowPeer[] }) => void
+  ) => () => void;
+  onPetWindowPlatforms?: (
+    callback: (payload: { platforms: PetWindowPlatform[] }) => void
+  ) => () => void;
+  onPetWindowSetIgnoreMouse?: (
+    callback: (payload: { ignore: boolean }) => void
+  ) => () => void;
+  petWindow?: {
+    ready?: (petId: string) => void;
+    target?: (petId: string, x: number, y: number) => void;
+    ignoreMouse?: (petId: string, ignore: boolean) => void;
+    focus?: (petId: string, take: boolean) => void;
+    onInit?: (
+      callback: (payload: PetWindowInitPayload) => void
+    ) => () => void;
+    onMetrics?: (
+      callback: (payload: PetWindowMetrics) => void
+    ) => () => void;
+    onPeers?: (
+      callback: (payload: { peers: PetWindowPeer[] }) => void
+    ) => () => void;
+    onPlatforms?: (
+      callback: (payload: { platforms: PetWindowPlatform[] }) => void
+    ) => () => void;
+    onSetIgnoreMouse?: (
+      callback: (payload: { ignore: boolean }) => void
+    ) => () => void;
+  };
   globalDragSupported: boolean;
   beginGlobalDrag: () => Promise<{ ok: boolean; ready: boolean }>;
   endGlobalDrag: () => Promise<{ ok: boolean }>;

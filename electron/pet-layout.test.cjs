@@ -477,6 +477,30 @@ test("j) a pet that only exists in the pet-store also receives a layout", functi
   });
 });
 
+test("k) per-pet windows remain opt-in by default", function () {
+  assert.equal(createDefaultState().settings.overlay.perPetWindows, false);
+});
+
+test("l) layout patch merge keeps unknown fields, forces v3 and does not mutate input", function () {
+  const current = {
+    layoutVersion: 3,
+    displayFrame: { width: 260, height: 320 },
+    collision: { width: 104, height: 134, offsetX: 0, offsetY: 93 },
+    interaction: { width: 104, height: 134, offsetX: 0, offsetY: 93 },
+    placement: { x: 352, y: 667, direction: 1 },
+    extraFutureField: { keep: true }
+  };
+  const merged = M.mergeLayoutPatch(current, {
+    placement: { x: 500.25, y: 600, direction: -1 },
+    collision: { offsetX: 12 }
+  });
+  assert.equal(merged.layoutVersion, 3);
+  assert.deepEqual(merged.extraFutureField, { keep: true });
+  assert.deepEqual(merged.collision, { width: 104, height: 134, offsetX: 12, offsetY: 93 });
+  assert.deepEqual(merged.placement, { x: 500.25, y: 600, direction: -1 });
+  assert.deepEqual(current.placement, { x: 352, y: 667, direction: 1 }, "must not mutate the input");
+  assert.equal(M.mergeLayoutPatch(null, null), null);
+});
 /* ------------------------------------------------------------ summary */
 
 console.log("");

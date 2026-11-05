@@ -474,6 +474,44 @@ function resolveLegacyDisplayFrameCenter(pet) {
   };
 }
 
+/**
+ * 把前端下发的 layout 补丁合并进已有 v3 layout。
+ * - 只认识 displayFrame / collision / interaction / placement 四个已知字段；
+ * - 未知字段原样保留（便于将来扩展，也不会丢数据）；
+ * - layoutVersion 永远写回 3，旧字段（renderConfig 等）完全不动。
+ */
+function mergeLayoutPatch(current, incoming) {
+  if (!incoming || typeof incoming !== "object") return current || null;
+  const base = current && typeof current === "object" ? current : {};
+
+  function mergeBox(baseBox, nextBox) {
+    if (!nextBox || typeof nextBox !== "object") return baseBox;
+    const merged = { ...(baseBox || {}) };
+    for (const key of ["width", "height", "offsetX", "offsetY"]) {
+      const value = num(nextBox[key], NaN);
+      if (isFiniteNumber(value)) merged[key] = value;
+    }
+    return merged;
+  }
+
+  const next = { ...base, ...incoming, layoutVersion: LAYOUT_VERSION };
+  next.displayFrame = mergeBox(base.displayFrame, incoming.displayFrame);
+  next.collision = mergeBox(base.collision, incoming.collision);
+  next.interaction = mergeBox(base.interaction, incoming.interaction);
+
+  const placement = { ...(base.placement || {}) };
+  if (incoming.placement && typeof incoming.placement === "object") {
+    const x = num(incoming.placement.x, NaN);
+    const y = num(incoming.placement.y, NaN);
+    if (isFiniteNumber(x)) placement.x = round2(x);
+    if (isFiniteNumber(y)) placement.y = round2(y);
+    if (incoming.placement.direction === 1 || incoming.placement.direction === -1) {
+      placement.direction = incoming.placement.direction;
+    }
+  }
+  next.placement = placement;
+  return next;
+}
 module.exports = {
   LAYOUT_VERSION,
   DEFAULT_DISPLAY_WIDTH,
@@ -490,6 +528,7 @@ module.exports = {
   migratePetLayoutWithOptions,
   migratePet,
   migratePets,
+  mergeLayoutPatch,
   ensurePetLayout,
   ensurePetLayouts,
   mirrorOffsetX,

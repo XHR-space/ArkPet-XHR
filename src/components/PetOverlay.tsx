@@ -495,10 +495,13 @@ export function MultiPetOverlay() {
   }, [desktopIcons]);
   const registry = useRef(new Map<string, EntitySnapshot>());
   const iconSignatureRef = useRef("");
+  // 每角色独立窗口模式下，overlay 不再绘制角色，也不再上传角色区域（Backend 要求）。
+  const perPetWindowsRef = useRef(false);
 
   useEffect(() => {
     const reportRegions = () => {
       if (typeof window.deskPet.reportPetRegions !== "function") return;
+      if (perPetWindowsRef.current) return;
       const regions: PetInteractionRegion[] = Array.from(
         registry.current.values()
       ).map((entity) => ({
@@ -523,6 +526,23 @@ export function MultiPetOverlay() {
       }
     };
   }, []);
+
+  // 切换独立窗口开关时同步 overlay 侧行为：清空角色区域并放开鼠标穿透。
+  useEffect(() => {
+    if (!overlaySettings) return;
+    const enabled = overlaySettings.perPetWindows === true;
+    perPetWindowsRef.current = enabled;
+    if (!enabled) return;
+    if (typeof window.deskPet.reportPetRegions === "function") {
+      window.deskPet.reportPetRegions([]);
+    }
+    if (typeof window.deskPet.setOverlayMouseIgnore === "function") {
+      window.deskPet.setOverlayMouseIgnore(true);
+    }
+    if (typeof window.deskPet.setOverlayFocusable === "function") {
+      window.deskPet.setOverlayFocusable(false);
+    }
+  }, [overlaySettings?.perPetWindows, overlaySettings]);
 
   useEffect(() => {
     let mounted = true;

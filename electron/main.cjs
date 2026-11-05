@@ -23,6 +23,13 @@ const { Store, id } = require("./store.cjs");
 const ai = require("./ai.cjs");
 const { LocalInferenceManager } = require("./local-inference.cjs");
 const { VoiceAgent } = require("./voice-agent.cjs");
+const { getNativeWindowClient } = require("./native-window.cjs");
+const {
+  buildPetWindowUrl,
+  createPetWindowRuntime,
+  physicalPlacementToLogical
+} = require("./pet-window-runtime.cjs");
+const { mergeLayoutPatch } = require("./pet-layout.cjs");
 
 app.setName("ArkPet");
 
@@ -394,6 +401,7 @@ protocol.registerSchemesAsPrivileged([
 let store;
 let controlWindow = null;
 let overlayWindow = null;
+let petWindowRuntime = null;
 let isQuitting = false;
 let mouseDragHelper = null;
 let mouseDragHelperRestartTimer = null;
@@ -1016,6 +1024,7 @@ function rendererUrl(view) {
 function broadcastState() {
   if (!store) return;
   const state = store.get();
+  if (petWindowRuntime) petWindowRuntime.sync(state);
   const moduleWindowIds = new Set();
   const interactionWindowIds = new Set();
   for (const moduleWindow of externalModuleWindows.values()) {
@@ -1072,6 +1081,7 @@ function getPrimaryMetrics() {
 }
 
 function positionOverlay() {
+  if (petWindowRuntime) void petWindowRuntime.handleDisplayChange();
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
   const { bounds } = getPrimaryMetrics();
   overlayWindow.setBounds(bounds);
@@ -2586,7 +2596,7 @@ function triggerModuleAction(moduleId, petId = "default", origin = null) {
 
 function safeFileName(value) {
   return String(value || "asset")
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "-")
     .replace(/\s+/g, "-")
     .slice(0, 80);
 }
@@ -3506,6 +3516,43 @@ function preserveAuthoritativeDesktopPositions(patch) {
   return changed ? { ...patch, pets } : patch;
 }
 
+/**
+ * 每角色窗口的位置落库。
+ * runtime 在目标位置稳定约 400ms 后回调（不每帧写盘），这里把物理像素换算成
+ * layout.placement 的逻辑单位写进存档。不广播状态，避免渲染进程来回抖动。
+ */
+function persistPetWindowPlacement(petId, physicalPlacement, meta) {
+  if (!store || !isPlainObject(physicalPlacement)) return false;
+  const currentState = store.get();
+  const pet = Array.isArray(currentState?.pets)
+    ? currentState.pets.find((item) => item.id === petId)
+    : null;
+  if (!pet || !isPlainObject(pet.layout)) return false;
+  const display = screen.getPrimaryDisplay();
+  const scaleFactor =
+    Number(display?.scaleFactor) > 0 ? Number(display.scaleFactor) : 1;
+  const logical = physicalPlacementToLogical(physicalPlacement, scaleFactor);
+  const direction = meta?.direction === -1 ? -1 : 1;
+  const current = isPlainObject(pet.layout.placement)
+    ? pet.layout.placement
+    : {};
+  if (
+    Math.abs(Number(current.x) - logical.x) < 0.5 &&
+    Math.abs(Number(current.y) - logical.y) < 0.5 &&
+    (current.direction === -1 ? -1 : 1) === direction
+  ) {
+    return false;
+  }
+  store.mutate((draft) => {
+    const target = Array.isArray(draft.pets)
+      ? draft.pets.find((item) => item.id === petId)
+      : null;
+    if (!target || !isPlainObject(target.layout)) return;
+    target.layout.placement = { x: logical.x, y: logical.y, direction };
+    target.updatedAt = new Date().toISOString();
+  });
+  return true;
+}
 function registerIpc() {
   ipcMain.handle("store:get", () => store.get());
   ipcMain.handle("store:update", (_event, patch) => {
@@ -3562,6 +3609,9 @@ function registerIpc() {
           pet.desktopPosition = nextPosition;
         }
       }
+      if (isPlainObject(patch?.layout)) {
+        pet.layout = mergeLayoutPatch(pet.layout, patch.layout);
+      }
       pet.updatedAt = new Date().toISOString();
     });
     broadcastState();
@@ -3570,6 +3620,41 @@ function registerIpc() {
 
   ipcMain.handle("display:get-metrics", () => getPrimaryMetrics());
   ipcMain.handle("desktop:get-icons", () => getDesktopIcons());
+  ipcMain.handle("pet-window:move", (_event, petId, physicalX, physicalY) => {
+    if (!petWindowRuntime) {
+      return { ok: false, error: "pet-window-runtime-unavailable" };
+    }
+    return petWindowRuntime.movePetWindow(petId, physicalX, physicalY);
+  });
+  ipcMain.on("pet-window:ready", (event, payload) => {
+    if (!petWindowRuntime) return;
+    petWindowRuntime.handleRendererReady(event.sender, payload || {});
+  });
+  ipcMain.on("pet-window:target", (event, payload) => {
+    if (!petWindowRuntime) return;
+    petWindowRuntime.queueRendererTarget(
+      event.sender,
+      payload?.petId,
+      payload?.x,
+      payload?.y
+    );
+  });
+  ipcMain.on("pet-window:ignore-mouse", (event, payload) => {
+    if (!petWindowRuntime) return;
+    petWindowRuntime.setIgnoreMouse(
+      event.sender,
+      payload?.petId,
+      payload?.ignore
+    );
+  });
+  ipcMain.on("pet-window:focus", (event, payload) => {
+    if (!petWindowRuntime) return;
+    void petWindowRuntime.setFocus(
+      event.sender,
+      payload?.petId,
+      payload?.take
+    );
+  });
   ipcMain.on("debug:physics-log", (_event, message) => {
     if (process.env.ARKPET_PHYSICS_DEBUG !== "1") return;
     fs.appendFileSync(
@@ -5337,8 +5422,21 @@ if (!singleInstance) {
     await registerAssetProtocol();
     registerIpc();
     startMouseDragHelper();
+    petWindowRuntime = createPetWindowRuntime({
+      BrowserWindow,
+      screen,
+      nativeWindow: getNativeWindowClient({ logger: console }),
+      preloadPath: path.join(__dirname, "preload.cjs"),
+      getState: () => store.get(),
+      rendererUrl: (petId) => buildPetWindowUrl(rendererUrl, petId),
+      onPlacementSettled: (petId, physicalPlacement, meta) => {
+        persistPetWindowPlacement(petId, physicalPlacement, meta);
+      },
+      logger: console
+    });
     createControlWindow();
     createOverlayWindow();
+    void petWindowRuntime.sync(initialState);
 
       // 自动检查更新：只在正式安装包中运行，下载内容放在临时目录，
       // 永不写入 userData，退出时再替换软件文件。
@@ -5375,6 +5473,10 @@ app.on("will-quit", () => {
   mouseDragActive = false;
   destroyPetInteractionWindows();
   destroyPetChatWindows();
+  if (petWindowRuntime) {
+    void petWindowRuntime.dispose();
+    petWindowRuntime = null;
+  }
   if (store) {
     try {
       store.flushSave();

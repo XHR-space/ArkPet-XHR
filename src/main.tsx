@@ -5,6 +5,7 @@ import { AuxiliaryView } from "./components/AuxiliaryView";
 import { ChatWindow } from "./components/ChatWindow";
 import { MultiPetOverlay } from "./components/PetOverlay";
 import { PetChatBubbleWindow } from "./components/PetChatBubbleWindow";
+import { PetWindowView } from "./components/PetWindowView";
 import { StateProvider } from "./state";
 import "./styles.css";
 
@@ -27,6 +28,14 @@ if (view === "overlay") {
   document.documentElement.classList.add("overlay-document");
   document.body.classList.add("overlay-document");
   content = <MultiPetOverlay />;
+} else if (view === "pet-window") {
+  document.documentElement.classList.add("pet-window-document");
+  document.body.classList.add("pet-window-document");
+  content = (
+    <StateProvider>
+      <PetWindowView petId={readViewId(params.get("petId") || "")} />
+    </StateProvider>
+  );
 } else if (view.startsWith("aux:")) {
   content = (
     <StateProvider>
