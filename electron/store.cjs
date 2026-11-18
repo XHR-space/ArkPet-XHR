@@ -1115,6 +1115,14 @@ class Store {
     this.save();
     return this.get();
   }
+
+  // 数据位置迁移后切换读写目标（配合 data:change-location 使用）。
+  relocate(newUserDataPath) {
+    this.userDataPath = newUserDataPath;
+    this.filePath = path.join(newUserDataPath, STATE_FILE);
+    this.assetsPath = path.join(newUserDataPath, "assets");
+    this.petStorePath = path.join(newUserDataPath, "pet-store");
+  }
 }
 
 module.exports = {

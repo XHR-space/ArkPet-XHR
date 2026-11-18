@@ -289,7 +289,12 @@ function migratePetLayoutWithOptions(pet, options) {
     layoutVersion: LAYOUT_VERSION,
     displayFrame: {
       width: round2(geometry.displayFrameWidth),
-      height: round2(geometry.displayFrameHeight)
+      height: round2(geometry.displayFrameHeight),
+      // 显示框中心相对碰撞框中心（placement）的偏移，X 随朝向镜像。
+      // 旧数据里碰撞框偏移是“相对显示框中心”的，两者互为相反数；
+      // 迁移时一并落库，避免运行时再反推。
+      offsetX: round2(-geometry.collisionOffsetX),
+      offsetY: round2(-geometry.collisionOffsetY)
     },
     collision,
     // Rule 7: interaction starts as an exact copy of collision.
@@ -391,15 +396,23 @@ function mirrorOffsetX(offsetX, direction) {
 /**
  * World position of the display frame centre.
  *
- * placement stores the collision centre, so the display frame centre is the
- * collision centre minus the (direction-aware) collision offset.
+ * placement stores the collision centre; the display frame centre is the
+ * collision centre plus the displayFrame offset (direction-aware on X).
+ * Legacy v3 records without displayFrame.offset keep the old behaviour by
+ * falling back to the negated collision offset.
  */
 function resolveDisplayFrameCenter(layout) {
-  const collision = layout.collision;
   const direction = layout.placement.direction === -1 ? -1 : 1;
+  const frame = layout.displayFrame;
+  const frameOffsetX = isFiniteNumber(num(frame && frame.offsetX, NaN))
+    ? num(frame.offsetX, NaN)
+    : -(layout.collision.offsetX);
+  const frameOffsetY = isFiniteNumber(num(frame && frame.offsetY, NaN))
+    ? num(frame.offsetY, NaN)
+    : -(layout.collision.offsetY);
   return {
-    x: round2(layout.placement.x - mirrorOffsetX(collision.offsetX, direction)),
-    y: round2(layout.placement.y - collision.offsetY)
+    x: round2(layout.placement.x + mirrorOffsetX(frameOffsetX, direction)),
+    y: round2(layout.placement.y + frameOffsetY)
   };
 }
 

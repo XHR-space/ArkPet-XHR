@@ -45,6 +45,9 @@ contextBridge.exposeInMainWorld("arkpet", {
   activity: {
     log: (text) => invoke("activity-log", text)
   },
+  memory: {
+    record: (petId, text) => invoke("memory-record", petId, text)
+  },
   ui: {
     close: () => invoke("ui-close"),
     setSize: (width, height) => invoke("ui-set-size", width, height),

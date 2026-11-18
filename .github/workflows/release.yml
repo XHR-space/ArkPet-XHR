@@ -122,25 +122,25 @@ jobs:
             ArkPet ${{ steps.package.outputs.version }}
 
             【中文说明】
-            ArkPet 2.2.0 修复更新，Windows 与 macOS 安装包均已提供。
+            ArkPet 2.3.0 功能更新，Windows 与 macOS 安装包均已提供。
 
             主要变更：
-            - 修复高级设置中角色位置、显示画面和碰撞框的定位与保存问题，恢复稳定的桌面坐标链路
-            - 修复拖动后位置回弹、角色显示到屏幕或任务栏下方、慢速松手不受重力影响的问题
-            - 恢复稳定的拖动、抛掷、弹跳、落地与最终位置保存行为
-            - “文字对话”恢复为角色头顶的内联文字框，并调整到更靠近角色的位置；发送、流式回复、AI 和焦点功能保持不变
-            - 改进全局拖动捕获与退出清理，减少拖动中断和角色冻结
-            - 保持 2.1.x 用户数据目录和更新兼容性；发行包不包含个人模型、API 密钥、声音样本或使用记录
+            - 每个角色拥有独立交互窗口，拖动、抛掷、弹跳、落地、点击穿透、角色互撞与位置落库全部重做，体验更顺滑
+            - 落定 v3 三框布局（角色、舞台、说话框），修复舞台不显示角色的问题，高级设置编辑器完整支持
+            - 新增角色档案记忆日志：对话与关键互动自动记录，角色每次开口前会先总结记忆再回复，满 50 条自动压缩
+            - 模组平台下发与记忆写入接口，模组可自行决定是否把对话写入角色记忆
+            - 数据安全页改版为卡片形式，新增“更改数据位置”，可手动把数据迁移到新目录，重启后生效
+            - 保持 2.2.x 数据兼容性；发行包不包含个人模型、API 密钥、声音样本或使用记录
 
             【English】
-            ArkPet 2.2.0 is a maintenance update. Windows and macOS installers are included.
+            ArkPet 2.3.0 is a feature update. Windows and macOS installers are included.
 
             Highlights:
-            - Fixed character position, display frame, and hitbox positioning and persistence in advanced settings
-            - Fixed position snap-back, characters rendering below the desktop area, and slow drag releases ignoring gravity
-            - Restored reliable drag, throw, bounce, landing, and final-position persistence behavior
-            - Restored the inline text chat panel above the character and moved it closer; sending, streaming replies, AI, and focus behavior are unchanged
-            - Improved global drag capture and shutdown cleanup to reduce interrupted drags and frozen characters
-            - Preserved 2.1.x user-data paths and update compatibility; release packages contain no personal models, API keys, voice samples, or usage history
+            - Each character now has its own interactive window; drag, throw, bounce, landing, click-through, collision between characters, and position persistence were all rebuilt
+            - Finalized the v3 three-frame layout (character, stage, speech); fixed characters not showing on stage; full support in the advanced settings editor
+            - New character-profile memory log: conversations and key interactions are recorded automatically, and characters summarize their memories before every reply; auto-compacts at 50 entries
+            - Module platform distribution and a memory API let modules decide whether to write conversations into character memory
+            - Redesigned the data-safety page as cards and added "Change data location" to migrate data manually; takes effect after restart
+            - Preserved 2.2.x data compatibility; release packages contain no personal models, API keys, voice samples, or usage history
           overwrite_files: true
           files: release-files/*

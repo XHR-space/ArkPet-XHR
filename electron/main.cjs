@@ -30,6 +30,7 @@ const {
   physicalPlacementToLogical
 } = require("./pet-window-runtime.cjs");
 const { mergeLayoutPatch } = require("./pet-layout.cjs");
+const memoryLog = require("./memory-log.cjs");
 
 app.setName("ArkPet");
 
@@ -52,6 +53,62 @@ function canWriteDirectory(directory) {
     fs.writeFileSync(probe, "ok", "utf8");
     fs.rmSync(probe, { force: true });
     return true;
+  } catch {
+    return false;
+  }
+}
+
+// 手动更改数据位置后的覆盖配置：优先放在软件数据目录，其次放系统应用数据目录。
+function dataLocationOverridePath() {
+  const root = canWriteDirectory(softwareDataRootPath())
+    ? softwareDataRootPath()
+    : path.join(app.getPath("appData"), "XHR-cpu23", "DeskPetStudio");
+  return path.join(root, "user-data-location.json");
+}
+
+function readUserDataPathOverride() {
+  try {
+    const raw = fs.readFileSync(dataLocationOverridePath(), "utf8");
+    const parsed = JSON.parse(raw);
+    if (
+      typeof parsed?.userDataPath === "string" &&
+      parsed.userDataPath.trim()
+    ) {
+      return path.resolve(parsed.userDataPath.trim());
+    }
+  } catch {
+    // 没有覆盖配置时走默认路径。
+  }
+  return "";
+}
+
+// 列出目录下全部文件的相对路径与大小，用于迁移后的完整性校验。
+function listRelativeFiles(root) {
+  const out = [];
+  const walk = (dir) => {
+    for (const name of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, name.name);
+      if (name.isDirectory()) {
+        walk(full);
+      } else if (name.isFile()) {
+        out.push({
+          rel: path.relative(root, full),
+          size: fs.statSync(full).size
+        });
+      }
+    }
+  };
+  walk(root);
+  return out;
+}
+
+function verifyDataCopy(source, target) {
+  try {
+    const a = listRelativeFiles(source);
+    const b = listRelativeFiles(target);
+    if (a.length !== b.length) return false;
+    const map = new Map(b.map((entry) => [entry.rel, entry.size]));
+    return a.every((entry) => map.get(entry.rel) === entry.size);
   } catch {
     return false;
   }
@@ -104,6 +161,16 @@ function migrateLegacyUserData(targetPath) {
 }
 
 function resolveUserDataPath() {
+  // 手动更改数据位置后的覆盖路径优先；目录不存在或不可写时回退默认位置。
+  const override = readUserDataPathOverride();
+  if (override) {
+    const usable = fs.existsSync(override) && canWriteDirectory(override);
+    if (usable) {
+      migrateLegacyUserData(override);
+      fs.mkdirSync(override, { recursive: true });
+      return override;
+    }
+  }
   const preferred = preferredUserDataPath();
   if (canWriteDirectory(softwareDataRootPath())) {
     migrateLegacyUserData(preferred);
@@ -1519,6 +1586,14 @@ function sendOverlayCommand(command) {
     }
   });
   broadcastState();
+  // 唤醒 / 释放 / 睡觉写入角色档案记忆日志（未指定 petId 时按当前桌宠）。
+  if (
+    command.type === "wake" ||
+    command.type === "release" ||
+    command.type === "sleep"
+  ) {
+    recordPetBehavior(state, nextCommand.petId, command.type);
+  }
   window.webContents.send("overlay:command", nextCommand);
   for (const browserWindow of BrowserWindow.getAllWindows()) {
     if (!browserWindow.isDestroyed()) {
@@ -3042,6 +3117,8 @@ function buildReplyState(state, aiModule, options = {}) {
   return {
     ...state,
     activePetId: pet?.id || state.activePetId,
+    // 把整个训练档案带给 ai.cjs：skillOverrides / customBlocks 需要随档案一起生效
+    trainingProfile: aiModule || null,
     ...(aiModule
       ? {
           character: aiModule.character || state.character,
@@ -3055,63 +3132,294 @@ function buildReplyState(state, aiModule, options = {}) {
 async function replyWithProviders(state, text, options = {}) {
   const aiModule = resolveAiModule(state, options);
   const replyState = buildReplyState(state, aiModule, options);
+  // 只有文字对话与自动闲聊开启记忆参考（语音对话不生效）。
+  const useMemory = options.useMemory === true;
+  const memoryContext =
+    options.memoryContext !== undefined
+      ? String(options.memoryContext || "")
+      : useMemory
+        ? await resolveMemoryContext(replyState, aiModule, text)
+        : "";
+  const finalReplyState = memoryContext
+    ? { ...replyState, memoryContext }
+    : replyState;
   const modelId =
     aiModule?.localModelId ||
     options.modelId ||
     state.localInference?.llmModelId ||
     "";
   const llmMode = state.settings?.services?.llm?.mode || "local";
+
+  let result;
   if (llmMode === "api") {
-    return ai.chatLocal(replyState, [{ role: "user", content: text }]);
+    result = await ai.chatLocal(finalReplyState, [
+      { role: "user", content: text }
+    ]);
+  } else {
+    const selectedModel = (state.localModels || []).find(
+      (model) => model.id === modelId && model.status === "ready"
+    );
+    if (!selectedModel) {
+      result = {
+        ok: true,
+        source: "fallback",
+        text: ai.fallbackReply(finalReplyState, text),
+        warning: "当前 AI 模块还没有可用的本地对话模型。"
+      };
+    } else {
+      const systemPrompt = ai.buildSystemPrompt(finalReplyState);
+      const messages = [{ role: "user", content: text }];
+      try {
+        const chatMessages = [
+          { role: "system", content: systemPrompt },
+          ...messages
+        ];
+        const localResult =
+          typeof options.onDelta === "function"
+            ? await localInference.chatStream(
+                state,
+                chatMessages,
+                { modelId: selectedModel.id },
+                options.onDelta
+              )
+            : await localInference.chat(state, chatMessages, {
+                modelId: selectedModel.id
+              });
+        if (localResult) {
+          const parsedResult = ai.parseModelPayload(localResult.text);
+          result = {
+            ...localResult,
+            text: ai.sanitizeCharacterReply(
+              parsedResult.text || localResult.text
+            ),
+            speech: parsedResult.speech || undefined
+          };
+        }
+      } catch (error) {
+        result = {
+          ok: false,
+          source: "local-model",
+          text: `本地模型暂时无法运行：${error.message || "未知错误"}`,
+          error: error.message || "本地模型推理失败。"
+        };
+      }
+      if (!result) {
+        result = await ai.chatLocal(finalReplyState, messages);
+      }
+    }
   }
+
+  if (useMemory) appendDialogueMemory(aiModule, text, result);
+  return result;
+}
+
+/* ---------------- 角色档案记忆日志 ---------------- */
+
+// 拖拽判定：pointerdown 起点与 pointerup 终点距离达到阈值才算一次拖拽。
+const petInputDragStart = new Map();
+
+function memoryProfileForPet(state, petId) {
+  const pet =
+    (state.pets || []).find((item) => item.id === petId) ||
+    (state.pets || []).find((item) => item.id === state.activePetId);
+  const profileId = pet?.modulePlugins?.aiModuleId;
+  return (
+    (state.trainingProfiles || []).find(
+      (profile) => profile.id === profileId
+    ) || null
+  );
+}
+
+// 写入一条记忆日志；写入后若达到压缩阈值，异步触发自动压缩。
+function writeMemoryEntry(profileId, entry) {
+  const state = store.mutate((draft) => {
+    const profile = (draft.trainingProfiles || []).find(
+      (item) => item.id === profileId
+    );
+    if (!profile) return;
+    profile.memoryLog = memoryLog.appendEntry(profile.memoryLog, entry);
+  });
+  broadcastState();
+  const profile = (state.trainingProfiles || []).find(
+    (item) => item.id === profileId
+  );
+  if (profile?.memoryLog && memoryLog.shouldCompress(profile.memoryLog)) {
+    setImmediate(() => {
+      autoCompressMemory(profileId).catch(() => {
+        // 压缩失败就跳过：原文保留，不丢数据，下次写入再试。
+      });
+    });
+  }
+  return state;
+}
+
+function recordPetBehavior(state, petId, type) {
+  const profile = memoryProfileForPet(state, petId);
+  if (!profile) return;
+  const texts = {
+    wake: "桌宠被唤醒。",
+    release: "桌宠从管理窗口释放到桌面。",
+    sleep: "桌宠开始放松并进入休眠。",
+    dblclick: "用户双击了桌宠。",
+    contextmenu: "用户右键点击了桌宠。",
+    drag: "用户拖拽了桌宠。",
+    autoTextOn: "用户开启了自动闲聊。",
+    autoTextOff: "用户关闭了自动闲聊。"
+  };
+  const text = texts[type];
+  if (!text) return;
+  writeMemoryEntry(profile.id, memoryLog.createEntry("behavior", text, type));
+}
+
+// 自动闲聊开关：对比 store:update 前后的 autoTextEnabled 值，翻转时写一条行为日志。
+function recordAutoTextToggles(beforeState, patch) {
+  const nextPets = Array.isArray(patch?.pets) ? patch.pets : null;
+  if (!nextPets) return;
+  for (const nextPet of nextPets) {
+    if (!nextPet || typeof nextPet.autoTextEnabled !== "boolean") continue;
+    const beforePet = (beforeState.pets || []).find(
+      (item) => item.id === nextPet.id
+    );
+    const beforeValue =
+      beforePet?.autoTextEnabled ?? beforePet?.autoDialogueEnabled;
+    if (typeof beforeValue !== "boolean") continue;
+    if (beforeValue === nextPet.autoTextEnabled) continue;
+    recordPetBehavior(
+      beforeState,
+      nextPet.id,
+      nextPet.autoTextEnabled ? "autoTextOn" : "autoTextOff"
+    );
+  }
+}
+
+// 对话日志：一轮对话一条（用户消息 + 角色回复）；回复失败不记录。
+function appendDialogueMemory(aiModule, userText, result) {
+  if (!aiModule?.id || !result || result.ok === false) return;
+  const reply = String(result?.text || "").trim();
+  if (!reply) return;
+  const name = aiModule.character?.name || "角色";
+  const isAutoChat = String(userText || "").includes("现在没有人对你说话");
+  const text = isAutoChat
+    ? `${name}（主动闲聊）：${reply}`
+    : `用户：${String(userText).slice(0, 2000)}\n${name}：${reply}`;
+  writeMemoryEntry(aiModule.id, memoryLog.createEntry("dialogue", text));
+}
+
+function cleanMemoryContext(text) {
+  const cleaned = String(text || "").trim();
+  if (!cleaned || cleaned === "无" || cleaned === "无。") return "";
+  return cleaned.slice(0, 600);
+}
+
+// 两步记忆参考的第一步：让模型把「摘要 + 最近日志」提炼成简短记忆上下文。
+async function resolveMemoryContext(replyState, aiModule, userText) {
+  const memory = memoryLog.normalizeMemoryLog(aiModule?.memoryLog);
+  if (!memory.summary.trim() && memory.recent.length === 0) return "";
+  const prompt = memoryLog.buildMemoryContextPrompt(memory, userText);
+  const llmMode = replyState.settings?.services?.llm?.mode || "local";
+  if (llmMode === "api") {
+    const result = await ai.completeChatApi(
+      replyState,
+      [
+        { role: "system", content: memoryLog.SUMMARIZE_SYSTEM },
+        { role: "user", content: prompt }
+      ],
+      { maxTokens: 200 }
+    );
+    return result.ok && result.text ? cleanMemoryContext(result.text) : "";
+  }
+  const modelId =
+    aiModule?.localModelId || replyState.localInference?.llmModelId || "";
+  const selectedModel = (replyState.localModels || []).find(
+    (model) => model.id === modelId && model.status === "ready"
+  );
+  if (!selectedModel) return "";
+  try {
+    const localResult = await localInference.chat(
+      replyState,
+      [
+        { role: "system", content: memoryLog.SUMMARIZE_SYSTEM },
+        { role: "user", content: prompt }
+      ],
+      { modelId: selectedModel.id }
+    );
+    const text = String(localResult?.text || "").trim();
+    return text ? cleanMemoryContext(text) : "";
+  } catch {
+    return "";
+  }
+}
+
+// 用当前档案的模型把日志压缩成新摘要（自动/手动压缩共用）。
+async function compressMemoryEntries(state, aiModule, summary, entries) {
+  const prompt = memoryLog.buildCompressPrompt(summary, entries);
+  const llmMode = state.settings?.services?.llm?.mode || "local";
+  if (llmMode === "api") {
+    const result = await ai.completeChatApi(
+      state,
+      [
+        { role: "system", content: memoryLog.COMPRESS_SYSTEM },
+        { role: "user", content: prompt }
+      ],
+      { maxTokens: 600 }
+    );
+    if (result.ok && result.text) {
+      return { ok: true, summary: String(result.text).trim().slice(0, 4000) };
+    }
+    return { ok: false, error: result.error || "压缩失败。" };
+  }
+  const modelId =
+    aiModule?.localModelId || state.localInference?.llmModelId || "";
   const selectedModel = (state.localModels || []).find(
     (model) => model.id === modelId && model.status === "ready"
   );
   if (!selectedModel) {
-    return {
-      ok: true,
-      source: "fallback",
-      text: ai.fallbackReply(replyState, text),
-      warning: "当前 AI 模块还没有可用的本地对话模型。"
-    };
+    return { ok: false, error: "没有可用的本地对话模型，无法压缩。" };
   }
-  const systemPrompt = ai.buildSystemPrompt(replyState);
-  const messages = [{ role: "user", content: text }];
   try {
-    const chatMessages = [
-      { role: "system", content: systemPrompt },
-      ...messages
-    ];
-    const localResult =
-      typeof options.onDelta === "function"
-        ? await localInference.chatStream(
-            state,
-            chatMessages,
-            { modelId: selectedModel.id },
-            options.onDelta
-          )
-        : await localInference.chat(state, chatMessages, {
-            modelId: selectedModel.id
-          });
-    if (localResult) {
-      const parsedResult = ai.parseModelPayload(localResult.text);
-      return {
-        ...localResult,
-        text: ai.sanitizeCharacterReply(
-          parsedResult.text || localResult.text
-        ),
-        speech: parsedResult.speech || undefined
-      };
-    }
+    const localResult = await localInference.chat(
+      state,
+      [
+        { role: "system", content: memoryLog.COMPRESS_SYSTEM },
+        { role: "user", content: prompt }
+      ],
+      { modelId: selectedModel.id }
+    );
+    const text = String(localResult?.text || "").trim();
+    if (!text) return { ok: false, error: "模型没有返回压缩结果。" };
+    return { ok: true, summary: text.slice(0, 4000) };
   } catch (error) {
-    return {
-      ok: false,
-      source: "local-model",
-      text: `本地模型暂时无法运行：${error.message || "未知错误"}`,
-      error: error.message || "本地模型推理失败。"
-    };
+    return { ok: false, error: error?.message || "压缩失败。" };
   }
-  return ai.chatLocal(replyState, messages);
+}
+
+async function autoCompressMemory(profileId) {
+  const state = store.get();
+  const profile = (state.trainingProfiles || []).find(
+    (item) => item.id === profileId
+  );
+  const memory = memoryLog.normalizeMemoryLog(profile?.memoryLog);
+  const plan = memoryLog.compressPlan(memory);
+  if (!plan || plan.entries.length === 0) return;
+  const result = await compressMemoryEntries(
+    state,
+    profile,
+    memory.summary,
+    plan.entries
+  );
+  if (!result.ok) return;
+  store.mutate((draft) => {
+    const target = (draft.trainingProfiles || []).find(
+      (item) => item.id === profileId
+    );
+    if (!target?.memoryLog) return;
+    target.memoryLog = memoryLog.applyCompression(
+      target.memoryLog,
+      result.summary,
+      plan.removedIds
+    );
+  });
+  broadcastState();
 }
 
 async function transcribeWithProviders(state, filePath) {
@@ -3528,6 +3836,25 @@ function preserveAuthoritativeDesktopPositions(patch) {
     } else {
       delete nextPet.desktopPosition;
     }
+    // layout.placement 是运行时位置权威（碰撞框中心）。编辑器全量存档可能带回
+    // 陈旧 placement，这里保留当前存档的最新值，避免覆盖运行时新位置。
+    const currentPlacement = isPlainObject(currentPet.layout)
+      ? currentPet.layout.placement
+      : null;
+    if (
+      isPlainObject(currentPlacement) &&
+      Number.isFinite(currentPlacement.x) &&
+      Number.isFinite(currentPlacement.y)
+    ) {
+      if (isPlainObject(incomingPet.layout)) {
+        nextPet.layout = {
+          ...incomingPet.layout,
+          placement: currentPlacement
+        };
+      } else {
+        nextPet.layout = { ...currentPet.layout };
+      }
+    }
     changed = true;
     return nextPet;
   });
@@ -3657,15 +3984,19 @@ function persistPetWindowPlacement(petId, physicalPlacement, meta) {
 function registerIpc() {
   ipcMain.handle("store:get", () => store.get());
   ipcMain.handle("store:update", (_event, patch) => {
+    const before = store.get();
     const state = store.update(preserveAuthoritativeDesktopPositions(patch));
     broadcastState();
     applyOverlaySettings();
+    recordAutoTextToggles(before, patch);
     return state;
   });
   ipcMain.on("store:update-sync", (event, patch) => {
+    const before = store.get();
     const state = store.update(preserveAuthoritativeDesktopPositions(patch));
     broadcastState();
     applyOverlaySettings();
+    recordAutoTextToggles(before, patch);
     event.returnValue = state;
   });
   ipcMain.handle("store:replace", (_event, nextState) => {
@@ -3866,6 +4197,19 @@ function registerIpc() {
       button: Number(payload?.button) || 0,
       buttons: Number(payload?.buttons) || 0
     });
+    // 双击 / 右键 / 拖拽写入角色档案记忆日志。
+    const inputType = String(payload?.type || "");
+    if (inputType === "dblclick" || inputType === "contextmenu") {
+      recordPetBehavior(store.get(), petId, inputType);
+    } else if (inputType === "pointerdown") {
+      petInputDragStart.set(petId, { x: screenX, y: screenY });
+    } else if (inputType === "pointerup" || inputType === "pointercancel") {
+      const start = petInputDragStart.get(petId);
+      petInputDragStart.delete(petId);
+      if (start && Math.hypot(screenX - start.x, screenY - start.y) >= 24) {
+        recordPetBehavior(store.get(), petId, "drag");
+      }
+    }
   });
   ipcMain.on("chat:update-anchor", (event, anchor) => {
     if (!isOverlaySender(event.sender)) return;
@@ -4037,6 +4381,23 @@ function registerIpc() {
     });
     broadcastState();
     return true;
+  });
+
+  // 模组写入角色档案记忆日志：模组自行决定是否记录。
+  ipcMain.handle("module:memory-record", (event, petId, text) => {
+    if (!moduleRecordForSender(event.sender)) {
+      throw new Error("该操作只能由模组窗口调用。");
+    }
+    const state = store.get();
+    const pet =
+      (state.pets || []).find((item) => item.id === petId) ||
+      (state.pets || []).find((item) => item.id === state.activePetId);
+    const profileId = pet?.modulePlugins?.aiModuleId;
+    if (!profileId) return { ok: false, error: "该桌宠没有绑定角色档案。" };
+    const content = String(text || "").trim().slice(0, 2000);
+    if (!content) return { ok: false, error: "内容为空。" };
+    writeMemoryEntry(profileId, memoryLog.createEntry("module", content));
+    return { ok: true };
   });
 
   ipcMain.handle("module:ui-close", (event) => {
@@ -4833,7 +5194,8 @@ function registerIpc() {
       .find((message) => message.role === "user")?.content;
     return replyWithProviders(state, String(text || ""), {
       aiModuleId,
-      petId
+      petId,
+      useMemory: true
     });
   });
   ipcMain.handle("ai:chat-stream", async (event, messages, aiModuleId, requestId, petId) => {
@@ -4844,25 +5206,93 @@ function registerIpc() {
     const userText = String(text || "");
     const aiModule = resolveAiModule(state, { aiModuleId });
     const replyState = buildReplyState(state, aiModule, { petId });
+    // 两步记忆参考：先提炼记忆上下文，再带着它生成回复。
+    const memoryContext = await resolveMemoryContext(
+      replyState,
+      aiModule,
+      userText
+    );
+    const finalReplyState = memoryContext
+      ? { ...replyState, memoryContext }
+      : replyState;
     const streamId = String(requestId || aiModuleId || "");
     const emitDelta = (delta) => {
       if (delta && !event.sender.isDestroyed()) {
         event.sender.send("ai:chat-stream", { delta, requestId: streamId });
       }
     };
+    let result;
     if ((state.settings?.services?.llm?.mode || "local") === "api") {
-      return ai.chatLocalStream(
-        replyState,
+      result = await ai.chatLocalStream(
+        finalReplyState,
         [{ role: "user", content: userText }],
         emitDelta
       );
+      appendDialogueMemory(aiModule, userText, result);
+    } else {
+      result = await replyWithProviders(state, userText, {
+        aiModuleId,
+        petId,
+        memoryContext,
+        useMemory: true
+      });
+      emitDelta(result.text);
     }
-    const result = await replyWithProviders(state, userText, {
-      aiModuleId,
-      petId
-    });
-    emitDelta(result.text);
     return result;
+  });
+  ipcMain.handle("memory-log:get", (_event, profileId) => {
+    const profile = (store.get().trainingProfiles || []).find(
+      (item) => item.id === profileId
+    );
+    if (!profile) return null;
+    return memoryLog.normalizeMemoryLog(profile.memoryLog);
+  });
+  ipcMain.handle("memory-log:clear", (_event, profileId) => {
+    let memory = null;
+    store.mutate((draft) => {
+      const profile = (draft.trainingProfiles || []).find(
+        (item) => item.id === profileId
+      );
+      if (!profile) return;
+      profile.memoryLog = { summary: "", recent: [] };
+      memory = memoryLog.normalizeMemoryLog(profile.memoryLog);
+    });
+    broadcastState();
+    return memory;
+  });
+  ipcMain.handle("memory-log:compress", async (_event, profileId) => {
+    const state = store.get();
+    const profile = (state.trainingProfiles || []).find(
+      (item) => item.id === profileId
+    );
+    const memory = memoryLog.normalizeMemoryLog(profile?.memoryLog);
+    const plan = memoryLog.manualCompressPlan(memory);
+    if (!plan.entries.length) {
+      return { ok: false, error: "没有可压缩的日志。" };
+    }
+    const result = await compressMemoryEntries(
+      state,
+      profile,
+      memory.summary,
+      plan.entries
+    );
+    if (!result.ok) return result;
+    const next = store.mutate((draft) => {
+      const target = (draft.trainingProfiles || []).find(
+        (item) => item.id === profileId
+      );
+      if (!target?.memoryLog) return;
+      target.memoryLog = memoryLog.applyCompression(
+        target.memoryLog,
+        result.summary,
+        plan.removedIds
+      );
+    });
+    broadcastState();
+    const updated = (next.trainingProfiles || []).find(
+      (item) => item.id === profileId
+    );
+    return { ok: true, memoryLog: memoryLog.normalizeMemoryLog(updated?.memoryLog) };
   });
   ipcMain.handle("voice:speak", async (_event, text, voiceId, voiceConfig) => {
     const state = store.get();
@@ -5427,6 +5857,109 @@ ipcMain.handle("ttsInstallStatus", () => {
         error: error?.message || "导入备份失败。"
       };
     }
+  });
+
+  // 手动更改数据位置：复制全部数据到新位置并校验，旧目录仅改名为时间戳备份
+  // （不直接删除，避免不可逆损失），重启后使用新位置。
+  ipcMain.handle("data:change-location", async () => {
+    const result = await dialog.showOpenDialog(controlWindow, {
+      title: "选择新的数据存放位置",
+      buttonLabel: "移动到这里",
+      properties: ["openDirectory", "createDirectory"]
+    });
+    if (result.canceled) return { canceled: true };
+    const target = path.join(result.filePaths[0], "user-data");
+    const current = store.userDataPath;
+    if (path.resolve(target) === path.resolve(current)) {
+      return { canceled: false, ok: false, error: "新位置与当前位置相同。" };
+    }
+    if (fs.existsSync(target)) {
+      try {
+        if (fs.readdirSync(target).length > 0) {
+          return {
+            canceled: false,
+            ok: false,
+            error: "目标位置已有内容，请选择空文件夹。"
+          };
+        }
+      } catch (error) {
+        return {
+          canceled: false,
+          ok: false,
+          error: `无法读取目标位置：${error?.message || error}`
+        };
+      }
+    }
+    try {
+      store.flushSave();
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.cpSync(current, target, {
+        recursive: true,
+        force: true,
+        errorOnExist: false
+      });
+      // 校验新副本与旧目录一致，不一致则丢弃新副本（旧数据完好无损）。
+      if (!verifyDataCopy(current, target)) {
+        fs.rmSync(target, { recursive: true, force: true });
+        return {
+          canceled: false,
+          ok: false,
+          error: "数据校验失败，已放弃本次移动，旧数据保持原样。"
+        };
+      }
+    } catch (error) {
+      try {
+        if (fs.existsSync(target)) {
+          fs.rmSync(target, { recursive: true, force: true });
+        }
+      } catch {
+        // 清理不完整的新副本失败也不影响旧数据。
+      }
+      return {
+        canceled: false,
+        ok: false,
+        error: `移动数据失败：${error?.message || error}`
+      };
+    }
+    // 旧目录改名为带时间戳的备份目录（可恢复），旧位置不再保留活动数据。
+    const backupDir = `${current}.old-${new Date()
+      .toISOString()
+      .replace(/[:.]/g, "-")
+      .slice(0, 19)}`;
+    let movedOld = false;
+    try {
+      fs.renameSync(current, backupDir);
+      movedOld = true;
+    } catch {
+      // 重命名失败就保留旧目录原样，新副本已就绪，仍可切换。
+    }
+    try {
+      fs.mkdirSync(path.dirname(dataLocationOverridePath()), {
+        recursive: true
+      });
+      fs.writeFileSync(
+        dataLocationOverridePath(),
+        JSON.stringify({ userDataPath: target }, null, 2),
+        "utf8"
+      );
+    } catch (error) {
+      return {
+        canceled: false,
+        ok: false,
+        error: `数据已复制到新位置${
+          movedOld ? `，旧目录已改名为 ${backupDir}` : ""
+        }，但写入位置配置失败：${error?.message || error}`
+      };
+    }
+    // 切换运行时的读写目标，避免后续自动保存把旧目录重新建出来。
+    store.relocate(target);
+    store.flushSave();
+    return {
+      canceled: false,
+      ok: true,
+      newPath: target,
+      oldBackup: movedOld ? backupDir : current
+    };
   });
   ipcMain.handle("app:quit", () => {
     isQuitting = true;

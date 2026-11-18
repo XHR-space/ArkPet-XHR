@@ -1,6 +1,6 @@
-# ArkPet 2.2.0 User Guide
+# ArkPet 2.3.0 User Guide
 
-Applies to: ArkPet 2.2.0
+Applies to: ArkPet 2.3.0
 Document type: Standalone user guide, not part of the application UI
 
 This guide is written for both first-time users and advanced users who want to configure local AI, custom voice, and modules. Follow the basic workflow first, then continue into the AI, voice, and extension chapters as needed.
@@ -55,12 +55,12 @@ ArkPet is a local-first desktop character workspace. It separates desktop render
 
 ### 2.1 First launch
 
-1. Run `ArkPet Setup 2.2.0.exe`.
+1. Run `ArkPet Setup 2.3.0.exe`.
 2. Launch ArkPet after installation.
 3. The app opens on **Home Overview** by default after a full restart.
 4. User data is stored under `data/user-data` in the software directory. App updates replace program files while preserving this folder.
 
-The portable edition can be started directly with `ArkPet Portable 2.2.0.exe`. Portable and installed editions keep data relative to their own program location.
+The portable edition can be started directly with `ArkPet Portable 2.3.0.exe`. Portable and installed editions keep data relative to their own program location.
 
 ### 2.2 Main navigation
 

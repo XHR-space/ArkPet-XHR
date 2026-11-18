@@ -1,5 +1,6 @@
 import {
   ArchiveRestore,
+  FolderInput,
   FolderOpen,
   HardDriveDownload,
   Palette,
@@ -80,6 +81,7 @@ export function SettingsView() {
     updateCachePath: string;
   } | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
+  const [dataMoveHint, setDataMoveHint] = useState("");
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
 
   useEffect(() => {
@@ -150,6 +152,31 @@ export function SettingsView() {
     } finally {
       setBackupBusy(false);
     }
+  }
+
+  async function changeDataLocation() {
+    if (
+      !window.confirm(
+        "会把全部用户数据移动到新位置（旧目录改名为带时间的备份目录），重启软件后使用新位置。继续吗？"
+      )
+    ) {
+      return;
+    }
+    const result = await window.deskPet.changeDataLocation();
+    if (result.canceled) return;
+    if (!result.ok) {
+      window.alert(result.error || "更改数据位置失败。");
+      return;
+    }
+    setPaths(null);
+    setDataMoveHint(
+      `数据已移动到 ${result.newPath}。${
+        result.oldBackup
+          ? `旧目录已改名为备份：${result.oldBackup}（确认新位置正常后可自行删除）。`
+          : "旧目录保留在原处。"
+      }重启软件后使用新位置。`
+    );
+    void window.deskPet.getDataPaths().then(setPaths);
   }
 
   return (
@@ -285,7 +312,10 @@ export function SettingsView() {
             <div className="section-heading">
               <span className="section-kicker">数据安全</span>
               <h2>管理本机保存的数据</h2>
-              <p>状态文件、图片素材和声音样本都保存在当前电脑的数据目录中。</p>
+              <p>
+                状态文件、图片素材和声音样本都保存在当前电脑的数据目录中，
+                可以手动更改存放位置。
+              </p>
             </div>
             <div className="data-path">
               <FolderOpen size={20} />
@@ -302,38 +332,91 @@ export function SettingsView() {
                 </div>
               </div>
               <p className="idle-help">
-                用户数据放在软件目录下的 data/user-data 中。自动更新只替换程序文件，保留 data 目录。
+                自动更新只替换程序文件，保留 data 目录。可以点击下方「更改数据位置」把数据移动到别的文件夹。
               </p>
-            <div className="settings-actions">
-              <button type="button" onClick={() => window.deskPet.openDataFolder()}>
-                <FolderOpen size={16} />
-                  打开用户数据
-                </button>
-                <button type="button" onClick={() => window.deskPet.openSoftwareFolder()}>
-                  <FolderOpen size={16} />
-                  打开软件目录
+            {dataMoveHint && <p className="data-move-hint">{dataMoveHint}</p>}
+            <div className="data-action-grid">
+              <button
+                type="button"
+                className="data-action-card"
+                onClick={() => window.deskPet.openDataFolder()}
+              >
+                <FolderOpen size={18} />
+                <div>
+                  <strong>打开用户数据</strong>
+                  <span>在文件管理器中打开 user-data 目录</span>
+                </div>
               </button>
               <button
                 type="button"
+                className="data-action-card"
+                onClick={() => window.deskPet.openSoftwareFolder()}
+              >
+                <FolderOpen size={18} />
+                <div>
+                  <strong>打开软件目录</strong>
+                  <span>打开软件安装所在的文件夹</span>
+                </div>
+              </button>
+              <button
+                type="button"
+                className="data-action-card"
                 onClick={async () => {
                   const result = await window.deskPet.syncPetStore();
                   window.alert(`已保存 ${result.count} 个独立角色文件。`);
                 }}
               >
-                <Save size={16} />
-                保存独立角色文件
+                <Save size={18} />
+                <div>
+                  <strong>保存独立角色文件</strong>
+                  <span>把每个桌宠的配置导出为独立存档文件</span>
+                </div>
               </button>
-              <button type="button" onClick={() => window.deskPet.openPetStore()}>
-                <FolderOpen size={16} />
-                打开角色存档
+              <button
+                type="button"
+                className="data-action-card"
+                onClick={() => window.deskPet.openPetStore()}
+              >
+                <FolderOpen size={18} />
+                <div>
+                  <strong>打开角色存档</strong>
+                  <span>打开角色存档所在的文件夹</span>
+                </div>
               </button>
-              <button type="button" disabled={backupBusy} onClick={exportBackup}>
-                <HardDriveDownload size={16} />
-                导出备份
+              <button
+                type="button"
+                className="data-action-card"
+                disabled={backupBusy}
+                onClick={exportBackup}
+              >
+                <HardDriveDownload size={18} />
+                <div>
+                  <strong>{backupBusy ? "正在导出…" : "导出备份"}</strong>
+                  <span>把全部数据打包复制到指定文件夹</span>
+                </div>
               </button>
-              <button type="button" disabled={backupBusy} onClick={importBackup}>
-                <ArchiveRestore size={16} />
-                导入备份
+              <button
+                type="button"
+                className="data-action-card"
+                disabled={backupBusy}
+                onClick={importBackup}
+              >
+                <ArchiveRestore size={18} />
+                <div>
+                  <strong>{backupBusy ? "正在导入…" : "导入备份"}</strong>
+                  <span>从备份文件恢复全部数据</span>
+                </div>
+              </button>
+              <button
+                type="button"
+                className="data-action-card data-action-card-primary"
+                onClick={() => void changeDataLocation()}
+              >
+                <FolderInput size={18} />
+                <div>
+                  <strong>更改数据位置</strong>
+                  <span>把数据移动到新的文件夹，重启后生效</span>
+                </div>
               </button>
             </div>
           </div>

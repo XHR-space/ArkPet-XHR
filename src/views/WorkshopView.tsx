@@ -52,7 +52,8 @@ import type {
 } from "../types";
 
 type WorkshopMode = "edit" | "create";
-type AdvancedMode = "collision" | "interaction";
+type AdvancedBoxMode = "collision" | "interaction";
+type AdvancedMode = "display" | AdvancedBoxMode;
 type AdvancedResizeEdge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
 const advancedResizeEdges: AdvancedResizeEdge[] = [
@@ -73,30 +74,15 @@ function hasSameLayout(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function hasSameLayoutBox(left: PetLayoutBox, right: PetLayoutBox) {
-  return (
-    left.width === right.width &&
-    left.height === right.height &&
-    left.offsetX === right.offsetX &&
-    left.offsetY === right.offsetY
-  );
-}
-
 function withUpdatedLayoutBox(
   layout: PetDesktopLayout,
-  mode: AdvancedMode,
+  mode: AdvancedBoxMode,
   box: PetLayoutBox
 ) {
   const next: PetDesktopLayout = {
     ...layout,
     [mode]: box
   };
-  if (
-    mode === "collision" &&
-    hasSameLayoutBox(layout.collision, layout.interaction)
-  ) {
-    next.interaction = { ...box };
-  }
   return anchorLayoutPlacement(layout, next);
 }
 
@@ -606,7 +592,7 @@ export function WorkshopView() {
   }
 
   function updateLayoutBox(
-    mode: AdvancedMode,
+    mode: AdvancedBoxMode,
     patch: Partial<PetLayoutBox>
   ) {
     updateActiveLayout((current) => {
@@ -614,20 +600,43 @@ export function WorkshopView() {
         ...current[mode],
         ...patch
       };
-      return withUpdatedLayoutBox(current, mode, nextBox);
+      const next = withUpdatedLayoutBox(current, mode, nextBox);
+      if (mode !== "collision") return next;
+      // 碰撞框偏移与显示框偏移互为相反数（placement = 碰撞框中心）。
+      return {
+        ...next,
+        displayFrame: {
+          ...next.displayFrame,
+          offsetX: -next.collision.offsetX,
+          offsetY: -next.collision.offsetY
+        }
+      };
     });
   }
 
   function updateDisplayFrame(
     patch: Partial<PetDesktopLayout["displayFrame"]>
   ) {
-    updateActiveLayout((current) => ({
-      ...current,
-      displayFrame: {
+    updateActiveLayout((current) => {
+      const nextFrame = {
         ...current.displayFrame,
         ...patch
-      }
-    }));
+      };
+      const next = {
+        ...current,
+        displayFrame: nextFrame
+      };
+      if (!("offsetX" in patch) && !("offsetY" in patch)) return next;
+      // 显示框偏移变化时同步碰撞框偏移（互为相反数）。
+      return {
+        ...next,
+        collision: {
+          ...next.collision,
+          offsetX: -(nextFrame.offsetX ?? 0),
+          offsetY: -(nextFrame.offsetY ?? 0)
+        }
+      };
+    });
   }
 
   async function commitRenderConfig() {
@@ -850,7 +859,7 @@ export function WorkshopView() {
 
   function beginAdvancedDrag(
     event: React.PointerEvent,
-    mode: AdvancedMode
+    mode: AdvancedBoxMode
   ) {
     beginAdvancedPointerSession(event, (dx, dy, start) => {
       const box = start[mode];
@@ -861,6 +870,35 @@ export function WorkshopView() {
         ),
         offsetY: Math.round(box.offsetY + dy)
       });
+    });
+  }
+
+  // 拖动显示框本身：只改显示框相对碰撞框中心（placement）的偏移。
+  // 碰撞框偏移与显示框偏移互为相反数，保持“placement = 碰撞框中心”不变；
+  // 交互框偏移相对显示框中心，因此随显示框一起移动。
+  function beginAdvancedDisplayDrag(event: React.PointerEvent) {
+    beginAdvancedPointerSession(event, (dx, dy, start) => {
+      const direction = start.placement.direction;
+      const offsetX = Math.round(
+        (start.displayFrame.offsetX ?? -start.collision.offsetX) +
+          dx * direction
+      );
+      const offsetY = Math.round(
+        (start.displayFrame.offsetY ?? -start.collision.offsetY) + dy
+      );
+      return {
+        ...start,
+        displayFrame: {
+          ...start.displayFrame,
+          offsetX,
+          offsetY
+        },
+        collision: {
+          ...start.collision,
+          offsetX: -offsetX,
+          offsetY: -offsetY
+        }
+      };
     });
   }
 
@@ -884,6 +922,7 @@ export function WorkshopView() {
         return {
           ...start,
           displayFrame: {
+            ...start.displayFrame,
             width: Math.max(
               40,
               Math.round(start.displayFrame.width + widthDelta)
@@ -938,12 +977,41 @@ export function WorkshopView() {
     (activeRenderConfig.visualHeight || 134) * advancedScale;
   const advancedCenterX = stageSize.width / 2;
   const advancedCenterY = stageSize.height / 2;
-  const advancedDisplayLeft = advancedCenterX - advancedDisplayWidth / 2;
-  const advancedDisplayTop = advancedCenterY - advancedDisplayHeight / 2;
+  // 舞台中心 = 碰撞框中心（placement）。显示框中心按 displayFrame.offset 相对它偏移
+  // （X 随朝向镜像），缺省时回退到 -collision.offset（旧语义）。
+  const advancedDisplayOffsetX =
+    (activeLayout.displayFrame.offsetX ?? -activeLayout.collision.offsetX) *
+    (activeLayout.placement.direction === -1 ? -1 : 1) *
+    advancedScale;
+  const advancedDisplayOffsetY =
+    (activeLayout.displayFrame.offsetY ?? -activeLayout.collision.offsetY) *
+    advancedScale;
+  const advancedDisplayLeft =
+    advancedCenterX + advancedDisplayOffsetX - advancedDisplayWidth / 2;
+  const advancedDisplayTop =
+    advancedCenterY + advancedDisplayOffsetY - advancedDisplayHeight / 2;
+  // 显示模式下作为参照的碰撞框（不可交互）。
+  const advancedCollisionWidth =
+    activeLayout.collision.width * advancedScale;
+  const advancedCollisionHeight =
+    activeLayout.collision.height * advancedScale;
+  const advancedCollisionPosition = getLayoutBoxPosition(
+    {
+      width: advancedDisplayWidth,
+      height: advancedDisplayHeight
+    },
+    {
+      width: advancedCollisionWidth,
+      height: advancedCollisionHeight,
+      offsetX: activeLayout.collision.offsetX,
+      offsetY: activeLayout.collision.offsetY
+    },
+    activeLayout.placement.direction
+  );
   const activeLayoutBox =
-    advancedMode === "collision"
-      ? activeLayout.collision
-      : activeLayout.interaction;
+    advancedMode === "interaction"
+      ? activeLayout.interaction
+      : activeLayout.collision;
   const advancedVolumeWidth = activeLayoutBox.width * advancedScale;
   const advancedVolumeHeight = activeLayoutBox.height * advancedScale;
   const advancedVolumePosition = getLayoutBoxPosition(
@@ -1091,7 +1159,17 @@ export function WorkshopView() {
               <span>请在右侧依次导入骨骼、图集和纹理文件</span>
             </div>
           ) : pet.spine ? (
-            <SpinePet
+            <div
+              className="workshop-spine-wrap"
+              style={
+                showAdvanced
+                  ? {
+                      transform: `translate(${advancedDisplayOffsetX}px, ${advancedDisplayOffsetY}px)`
+                    }
+                  : undefined
+              }
+            >
+              <SpinePet
               skelUrl={pet.spine.skelUrl}
               state="idle"
               fitRatio={showAdvanced ? 1 : 0.72}
@@ -1111,16 +1189,16 @@ export function WorkshopView() {
               displayHeight={showAdvanced ? advancedDisplayHeight : undefined}
               offsetX={
                 showAdvanced
-                  ? 0
+                  ? (pet.desktopRenderConfig || pet.renderConfig)?.offsetX
                   : -28 + activeRenderConfig.offsetX
               }
               offsetY={
                 showAdvanced
-                  ? 0
+                  ? (pet.desktopRenderConfig || pet.renderConfig)?.offsetY
                   : activeRenderConfig.offsetY
               }
-              anchorBottom={false}
-              normalizeBodySize={false}
+              anchorBottom={showAdvanced}
+              normalizeBodySize={showAdvanced}
               className="workshop-spine-pet"
               onAnimations={saveSpineAnimations}
               onSkeletonInfo={saveSkeletonInfo}
@@ -1136,6 +1214,7 @@ export function WorkshopView() {
                 />
               }
             />
+            </div>
           ) : pet.avatarUrl ? (
             <img
               src={pet.avatarUrl}
@@ -1154,51 +1233,78 @@ export function WorkshopView() {
           {mode === "edit" && showAdvanced && (
             <div className="advanced-stage-editor">
               <div className="advanced-stage-label">角色中心已锁定</div>
-              <div
-                className="advanced-display-frame advanced-display-frame--fixed"
-                style={{
-                  left: advancedDisplayLeft,
-                  top: advancedDisplayTop,
-                  width: advancedDisplayWidth,
-                  height: advancedDisplayHeight
-                }}
-              >
-                <span className="advanced-frame-label">显示框</span>
-                {advancedResizeEdges.map((edge) => (
-                  <span
-                    className={`advanced-resize-edge advanced-resize-edge--${edge}`}
-                    key={edge}
-                    onPointerDown={(event) =>
-                      beginAdvancedResize(event, "display", edge)
-                    }
-                  />
-                ))}
-              </div>
-              <div
-                className={`advanced-volume-frame advanced-volume-frame--${advancedMode}`}
-                style={{
-                  left: advancedDisplayLeft + advancedVolumePosition.left,
-                  top: advancedDisplayTop + advancedVolumePosition.top,
-                  width: advancedVolumeWidth,
-                  height: advancedVolumeHeight
-                }}
-                onPointerDown={(event) =>
-                  beginAdvancedDrag(event, advancedMode)
-                }
-              >
-                <span className="advanced-frame-label">
-                  {advancedMode === "collision" ? "碰撞体积" : "交互范围"}
-                </span>
-                {advancedResizeEdges.map((edge) => (
-                  <span
-                    className={`advanced-resize-edge advanced-resize-edge--${edge}`}
-                    key={edge}
-                    onPointerDown={(event) =>
-                      beginAdvancedResize(event, advancedMode, edge)
-                    }
-                  />
-                ))}
-              </div>
+              {advancedMode === "display" ? (
+                <>
+                  <div
+                    className="advanced-volume-frame advanced-volume-frame--collision"
+                    style={{
+                      left:
+                        advancedDisplayLeft +
+                        advancedCollisionPosition.left,
+                      top:
+                        advancedDisplayTop +
+                        advancedCollisionPosition.top,
+                      width: advancedCollisionWidth,
+                      height: advancedCollisionHeight,
+                      pointerEvents: "none",
+                      opacity: 0.55
+                    }}
+                  >
+                    <span className="advanced-frame-label">
+                      碰撞体积（参照）
+                    </span>
+                  </div>
+                  <div
+                    className="advanced-display-frame advanced-display-frame--fixed"
+                    style={{
+                      left: advancedDisplayLeft,
+                      top: advancedDisplayTop,
+                      width: advancedDisplayWidth,
+                      height: advancedDisplayHeight,
+                      pointerEvents: "auto",
+                      cursor: "move"
+                    }}
+                    onPointerDown={beginAdvancedDisplayDrag}
+                  >
+                    <span className="advanced-frame-label">显示框</span>
+                    {advancedResizeEdges.map((edge) => (
+                      <span
+                        className={`advanced-resize-edge advanced-resize-edge--${edge}`}
+                        key={edge}
+                        onPointerDown={(event) =>
+                          beginAdvancedResize(event, "display", edge)
+                        }
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div
+                  className={`advanced-volume-frame advanced-volume-frame--${advancedMode}`}
+                  style={{
+                    left: advancedDisplayLeft + advancedVolumePosition.left,
+                    top: advancedDisplayTop + advancedVolumePosition.top,
+                    width: advancedVolumeWidth,
+                    height: advancedVolumeHeight
+                  }}
+                  onPointerDown={(event) =>
+                    beginAdvancedDrag(event, advancedMode)
+                  }
+                >
+                  <span className="advanced-frame-label">
+                    {advancedMode === "collision" ? "碰撞体积" : "交互范围"}
+                  </span>
+                  {advancedResizeEdges.map((edge) => (
+                    <span
+                      className={`advanced-resize-edge advanced-resize-edge--${edge}`}
+                      key={edge}
+                      onPointerDown={(event) =>
+                        beginAdvancedResize(event, advancedMode, edge)
+                      }
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {mode === "edit" && !showAdvanced && (
@@ -1250,6 +1356,17 @@ export function WorkshopView() {
                 <div className="advanced-mode-tabs">
                   <button
                     className={
+                      advancedMode === "display"
+                        ? "advanced-mode-button advanced-mode-button--active"
+                        : "advanced-mode-button"
+                    }
+                    type="button"
+                    onClick={() => setAdvancedMode("display")}
+                  >
+                    编辑显示框
+                  </button>
+                  <button
+                    className={
                       advancedMode === "collision"
                         ? "advanced-mode-button advanced-mode-button--active"
                         : "advanced-mode-button"
@@ -1285,140 +1402,143 @@ export function WorkshopView() {
                   />
                   <strong>{advancedPreviewZoom.toFixed(2)}x</strong>
                 </label>
-                <div className="advanced-section">
-                  <div className="advanced-section-heading">
-                    <strong>
-                      {advancedMode === "collision"
-                        ? "碰撞体积"
-                        : "交互范围"}
-                    </strong>
-                    <span>归一化像素</span>
+                {advancedMode === "display" ? (
+                  <div className="advanced-section">
+                    <div className="advanced-section-heading">
+                      <strong>显示框</strong>
+                      <span>中心固定，仅调整尺寸</span>
+                    </div>
+                    <div className="advanced-number-grid advanced-number-grid--single">
+                      <label className="advanced-number-field">
+                        <span>宽度</span>
+                        <input
+                          type="number"
+                          min="40"
+                          max="4000"
+                          step="1"
+                          value={activeLayout.displayFrame.width}
+                          onFocus={(event) => event.currentTarget.select()}
+                          onChange={(event) => {
+                            const value = Number(event.target.value);
+                            if (!Number.isFinite(value)) return;
+                            updateDisplayFrame({
+                              width: Math.max(40, Math.round(value))
+                            });
+                          }}
+                        />
+                        <em>px</em>
+                      </label>
+                      <label className="advanced-number-field">
+                        <span>高度</span>
+                        <input
+                          type="number"
+                          min="60"
+                          max="4000"
+                          step="1"
+                          value={activeLayout.displayFrame.height}
+                          onFocus={(event) => event.currentTarget.select()}
+                          onChange={(event) => {
+                            const value = Number(event.target.value);
+                            if (!Number.isFinite(value)) return;
+                            updateDisplayFrame({
+                              height: Math.max(60, Math.round(value))
+                            });
+                          }}
+                        />
+                        <em>px</em>
+                      </label>
+                    </div>
                   </div>
-                  <div className="advanced-number-grid">
-                    <label className="advanced-number-field">
-                      <span>宽度</span>
-                      <input
-                        type="number"
-                        min="20"
-                        max="4000"
-                        step="1"
-                        value={activeLayoutBox.width}
-                        onFocus={(event) => event.currentTarget.select()}
-                        onChange={(event) => {
-                          const value = Number(event.target.value);
-                          if (!Number.isFinite(value)) return;
-                          updateLayoutBox(advancedMode, {
-                            width: Math.max(20, Math.round(value))
-                          });
-                        }}
-                      />
-                      <em>px</em>
-                    </label>
-                    <label className="advanced-number-field">
-                      <span>高度</span>
-                      <input
-                        type="number"
-                        min="30"
-                        max="4000"
-                        step="1"
-                        value={activeLayoutBox.height}
-                        onFocus={(event) => event.currentTarget.select()}
-                        onChange={(event) => {
-                          const value = Number(event.target.value);
-                          if (!Number.isFinite(value)) return;
-                          updateLayoutBox(advancedMode, {
-                            height: Math.max(30, Math.round(value))
-                          });
-                        }}
-                      />
-                      <em>px</em>
-                    </label>
-                    <label className="advanced-number-field">
-                      <span>水平偏移</span>
-                      <input
-                        type="number"
-                        min="-4000"
-                        max="4000"
-                        step="1"
-                        value={activeLayoutBox.offsetX}
-                        onFocus={(event) => event.currentTarget.select()}
-                        onChange={(event) => {
-                          const value = Number(event.target.value);
-                          if (!Number.isFinite(value)) return;
-                          updateLayoutBox(advancedMode, {
-                            offsetX: Math.round(value)
-                          });
-                        }}
-                      />
-                      <em>px</em>
-                    </label>
-                    <label className="advanced-number-field">
-                      <span>垂直偏移</span>
-                      <input
-                        type="number"
-                        min="-4000"
-                        max="4000"
-                        step="1"
-                        value={activeLayoutBox.offsetY}
-                        onFocus={(event) => event.currentTarget.select()}
-                        onChange={(event) => {
-                          const value = Number(event.target.value);
-                          if (!Number.isFinite(value)) return;
-                          updateLayoutBox(advancedMode, {
-                            offsetY: Math.round(value)
-                          });
-                        }}
-                      />
-                      <em>px</em>
-                    </label>
+                ) : (
+                  <div className="advanced-section">
+                    <div className="advanced-section-heading">
+                      <strong>
+                        {advancedMode === "collision"
+                          ? "碰撞体积"
+                          : "交互范围"}
+                      </strong>
+                      <span>归一化像素</span>
+                    </div>
+                    <div className="advanced-number-grid">
+                      <label className="advanced-number-field">
+                        <span>宽度</span>
+                        <input
+                          type="number"
+                          min="20"
+                          max="4000"
+                          step="1"
+                          value={activeLayoutBox.width}
+                          onFocus={(event) => event.currentTarget.select()}
+                          onChange={(event) => {
+                            const value = Number(event.target.value);
+                            if (!Number.isFinite(value)) return;
+                            updateLayoutBox(advancedMode, {
+                              width: Math.max(20, Math.round(value))
+                            });
+                          }}
+                        />
+                        <em>px</em>
+                      </label>
+                      <label className="advanced-number-field">
+                        <span>高度</span>
+                        <input
+                          type="number"
+                          min="30"
+                          max="4000"
+                          step="1"
+                          value={activeLayoutBox.height}
+                          onFocus={(event) => event.currentTarget.select()}
+                          onChange={(event) => {
+                            const value = Number(event.target.value);
+                            if (!Number.isFinite(value)) return;
+                            updateLayoutBox(advancedMode, {
+                              height: Math.max(30, Math.round(value))
+                            });
+                          }}
+                        />
+                        <em>px</em>
+                      </label>
+                      <label className="advanced-number-field">
+                        <span>水平偏移</span>
+                        <input
+                          type="number"
+                          min="-4000"
+                          max="4000"
+                          step="1"
+                          value={activeLayoutBox.offsetX}
+                          onFocus={(event) => event.currentTarget.select()}
+                          onChange={(event) => {
+                            const value = Number(event.target.value);
+                            if (!Number.isFinite(value)) return;
+                            updateLayoutBox(advancedMode, {
+                              offsetX: Math.round(value)
+                            });
+                          }}
+                        />
+                        <em>px</em>
+                      </label>
+                      <label className="advanced-number-field">
+                        <span>垂直偏移</span>
+                        <input
+                          type="number"
+                          min="-4000"
+                          max="4000"
+                          step="1"
+                          value={activeLayoutBox.offsetY}
+                          onFocus={(event) => event.currentTarget.select()}
+                          onChange={(event) => {
+                            const value = Number(event.target.value);
+                            if (!Number.isFinite(value)) return;
+                            updateLayoutBox(advancedMode, {
+                              offsetY: Math.round(value)
+                            });
+                          }}
+                        />
+                        <em>px</em>
+                      </label>
+                    </div>
                   </div>
-                </div>
-                <div className="advanced-section">
-                  <div className="advanced-section-heading">
-                    <strong>显示框</strong>
-                    <span>中心固定，仅调整尺寸</span>
-                  </div>
-                  <div className="advanced-number-grid advanced-number-grid--single">
-                    <label className="advanced-number-field">
-                      <span>宽度</span>
-                      <input
-                        type="number"
-                        min="40"
-                        max="4000"
-                        step="1"
-                        value={activeLayout.displayFrame.width}
-                        onFocus={(event) => event.currentTarget.select()}
-                        onChange={(event) => {
-                          const value = Number(event.target.value);
-                          if (!Number.isFinite(value)) return;
-                          updateDisplayFrame({
-                            width: Math.max(40, Math.round(value))
-                          });
-                        }}
-                      />
-                      <em>px</em>
-                    </label>
-                    <label className="advanced-number-field">
-                      <span>高度</span>
-                      <input
-                        type="number"
-                        min="60"
-                        max="4000"
-                        step="1"
-                        value={activeLayout.displayFrame.height}
-                        onFocus={(event) => event.currentTarget.select()}
-                        onChange={(event) => {
-                          const value = Number(event.target.value);
-                          if (!Number.isFinite(value)) return;
-                          updateDisplayFrame({
-                            height: Math.max(60, Math.round(value))
-                          });
-                        }}
-                      />
-                      <em>px</em>
-                    </label>
-                  </div>
-                </div>
+                )}
                 <div className="advanced-save-row">
                   <button
                     className="advanced-save-button"

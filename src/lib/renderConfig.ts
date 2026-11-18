@@ -95,6 +95,10 @@ export function resolvePetLayout(
       legacyDisplayFrame.height / 2 - config.hitboxHeight / 2
   };
   const hasLayout = isPetLayoutV3(layout);
+  const collision = normalizeLayoutBox(
+    hasLayout ? layout?.collision : undefined,
+    legacyCollision
+  );
   const displayFrame = {
     width: Math.max(
       1,
@@ -109,12 +113,19 @@ export function resolvePetLayout(
         hasLayout ? layout?.displayFrame?.height : undefined,
         legacyDisplayFrame.height
       )
+    ),
+    // 显示框中心相对碰撞框中心（placement）的偏移，X 随朝向镜像。
+    // 旧数据没有该字段时用 -collision.offset 反推，保持“碰撞框偏移相对显示框中心”
+    // 的旧语义不变（旧碰撞框偏移与显示框偏移互为相反数）。
+    offsetX: finiteNumber(
+      hasLayout ? layout?.displayFrame?.offsetX : undefined,
+      -collision.offsetX
+    ),
+    offsetY: finiteNumber(
+      hasLayout ? layout?.displayFrame?.offsetY : undefined,
+      -collision.offsetY
     )
   };
-  const collision = normalizeLayoutBox(
-    hasLayout ? layout?.collision : undefined,
-    legacyCollision
-  );
   const interaction = normalizeLayoutBox(
     hasLayout ? layout?.interaction : undefined,
     collision
@@ -165,14 +176,21 @@ export function getLayoutBoxPosition(
 }
 
 export function getLayoutDisplayFrameCenter(layout: PetDesktopLayout) {
+  // 显示框中心 = placement（碰撞框中心）+ displayFrame 偏移（X 随朝向镜像）。
+  // 旧数据缺 displayFrame.offset 时用 -collision.offset 反推。
+  const offsetX = finiteNumber(
+    layout.displayFrame.offsetX,
+    -layout.collision.offsetX
+  );
+  const offsetY = finiteNumber(
+    layout.displayFrame.offsetY,
+    -layout.collision.offsetY
+  );
   return {
     x:
-      layout.placement.x -
-      mirrorLayoutOffsetX(
-        layout.collision.offsetX,
-        layout.placement.direction
-      ),
-    y: layout.placement.y - layout.collision.offsetY
+      layout.placement.x +
+      mirrorLayoutOffsetX(offsetX, layout.placement.direction),
+    y: layout.placement.y + offsetY
   };
 }
 

@@ -70,7 +70,14 @@ function normalizeLayout(layout) {
 
   return {
     layoutVersion: num(layout.layoutVersion, 3),
-    displayFrame: { width, height },
+    // displayFrame.offset 可选：旧数据缺省时为 NaN，由 computePetWindowGeometry
+    // 回退到 -collision.offset，保持旧版显示框定位不变。
+    displayFrame: {
+      width,
+      height,
+      offsetX: num(displayFrame?.offsetX, NaN),
+      offsetY: num(displayFrame?.offsetY, NaN)
+    },
     collision,
     interaction,
     placement: {
@@ -176,12 +183,18 @@ function computePetWindowGeometry(layoutValue, scaleValue, options = {}) {
         y: originY + layout.placement.y * displayScaleFactor
       };
 
-  const collisionOffsetX =
-    mirrorOffsetX(layout.collision.offsetX, direction) * pixelScale;
-  const collisionOffsetY = layout.collision.offsetY * pixelScale;
+  // 显示框中心 = placement（碰撞框中心）+ displayFrame 偏移（X 随朝向镜像）。
+  // 旧数据缺 displayFrame.offset 时回退到 -collision.offset。
+  const frame = layout.displayFrame;
+  const frameOffsetX = isFiniteNumber(frame.offsetX)
+    ? frame.offsetX
+    : -(layout.collision.offsetX);
+  const frameOffsetY = isFiniteNumber(frame.offsetY)
+    ? frame.offsetY
+    : -(layout.collision.offsetY);
   const displayCenter = {
-    x: placement.x - collisionOffsetX,
-    y: placement.y - collisionOffsetY
+    x: placement.x + mirrorOffsetX(frameOffsetX, direction) * pixelScale,
+    y: placement.y + frameOffsetY * pixelScale
   };
 
   const displayRect = {

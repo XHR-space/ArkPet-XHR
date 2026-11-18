@@ -1090,12 +1090,7 @@ export function PetWindowView({ petId }: { petId: string }) {
     const logicalY = (body.y - originY) / factor;
     try {
       await window.deskPet.applyPetPatch(petId, {
-        desktopPosition: {
-          x: Math.round(logicalX),
-          y: Math.round(logicalY),
-          direction: directionRef.current
-        },
-        // 规格 §8.3：layoutVersion 3 的 placement 才是权威位置。
+        // 位置统一写 layout.placement（碰撞框中心），不再写 legacy desktopPosition。
         // 主进程是否落库由后端决定；未支持时该字段被忽略，不影响物理。
         layout: layout
           ? {

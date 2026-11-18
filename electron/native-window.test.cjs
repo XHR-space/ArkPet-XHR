@@ -325,6 +325,26 @@ async function main() {
     assert.equal(mirrored.interactionInWindow.x, 0);
   });
 
+  await test("per-pet geometry honours an explicit displayFrame offset", () => {
+    const layout = {
+      displayFrame: { width: 50, height: 60, offsetX: 30, offsetY: -5 },
+      collision: { width: 20, height: 30, offsetX: -30, offsetY: 5 },
+      interaction: { width: 20, height: 30, offsetX: 0, offsetY: 0 },
+      placement: { x: 100, y: 200, direction: -1 }
+    };
+
+    const geometry = computePetWindowGeometry(layout, 2);
+    // 显示框中心 = (100 + mirror(30, -1)×2, 200 - 5×2) = (40, 190)；
+    // 碰撞框中心（direction=-1）= 显示框中心 + mirror(-30, -1)×2, +5×2 = (100, 200)
+    // 仍等于 placement。union 覆盖正反朝向的碰撞/交互框。
+    assert.deepEqual(geometry.window, {
+      x: -40,
+      y: 130,
+      width: 160,
+      height: 120
+    });
+  });
+
   await test("pet-window URL keeps the renderer view and adds petId", () => {
     const url = buildPetWindowUrl(
       (view) => `http://127.0.0.1:5173/?view=${view}`,

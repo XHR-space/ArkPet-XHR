@@ -1,4 +1,5 @@
 import {
+  Archive,
   AudioLines,
   BookOpen,
   Brain,
@@ -34,6 +35,12 @@ import type {
   TrainingDocument,
   TrainingProfile
 } from "../types";
+import {
+  buildFinalSkillText,
+  buildGeneratedSkill,
+  diffSkillField,
+  parseSkillText
+} from "../../electron/profile-skill.cjs";
 
 type TrainingTab =
   | "profile"
@@ -50,6 +57,29 @@ const tabs: Array<{ id: TrainingTab; label: string; icon: typeof UserRound }> = 
   { id: "voice", label: "声音模块", icon: AudioLines },
   { id: "models", label: "模型管理", icon: Package }
 ];
+
+const memoryKindLabels: Record<string, string> = {
+  dialogue: "对话",
+  behavior: "行为",
+  module: "模组"
+};
+
+function formatMemoryTime(createdAt: string) {
+  return String(createdAt || "").slice(0, 19).replace("T", " ");
+}
+
+// 把日志列表拼成文本框里的逐行文本：[类型 时间] 内容。
+function formatMemoryLogText(
+  entries: Array<{ kind: string; text: string; createdAt: string }>
+) {
+  return entries
+    .map((entry) => {
+      const label = memoryKindLabels[entry.kind] || "记录";
+      const time = formatMemoryTime(entry.createdAt);
+      return `[${label}${time ? " " + time : ""}] ${entry.text}`;
+    })
+    .join("\n");
+}
 
 export function TrainingView() {
   const { state, updateState } = useAppState();
@@ -73,6 +103,10 @@ export function TrainingView() {
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [profileNameError, setProfileNameError] = useState("");
   const [selectedVoiceProfileId, setSelectedVoiceProfileId] = useState("");
+  const [skillEditorOpen, setSkillEditorOpen] = useState(false);
+  const [skillDraft, setSkillDraft] = useState("");
+  const [skillError, setSkillError] = useState("");
+  const [memoryBusy, setMemoryBusy] = useState(false);
 
   if (!state) return null;
   const currentState = state;
@@ -90,6 +124,9 @@ export function TrainingView() {
   const profileCharacter = activeProfile?.character || currentState.character;
   const profileDocuments = activeProfile?.documents || currentState.documents;
   const profileMemories = activeProfile?.memories || currentState.memories;
+  const memoryLogValue = activeProfile?.memoryLog;
+  const memoryLogSummary = String(memoryLogValue?.summary || "").trim();
+  const memoryLogRecent = memoryLogValue?.recent || [];
   const promptPet =
     currentState.pets.find((pet) => pet.id === currentState.activePetId) ||
     currentState.pets[0];
@@ -201,47 +238,12 @@ export function TrainingView() {
           "</runtime_policy>"
       ].join("\n")
     : "当前没有可用于生成运行时 Prompt 的桌宠。";
-    const previewSkill = {
-      skill_version: 1,
-      identity: {
-        name: profileCharacter.name || activeProfile?.name || "桌宠",
-        role: profileCharacter.role || "桌面伙伴",
-        personality:
-          profileCharacter.personality || "自然、敏锐、有自己的判断。",
-        worldview:
-          profileCharacter.worldview || "生活在用户桌面中的长期伙伴。",
-        cares_about:
-          profileCharacter.likes || "重要的人和事。",
-        aversions_and_weaknesses:
-          profileCharacter.dislikes || "被误解、失去重要联系、无法掌握局面。"
-      },
-      style: {
-        speaking_style:
-          profileCharacter.speakingStyle || "短句为主，自然，偶尔反问。",
-        conversation_mode: "real_time_first_person_chat",
-        variability: "自然变化，不要每次使用相同热情、礼貌或句式。"
-      },
-      social: {
-        user_relationship_rule:
-          profileCharacter.boundaries || "把用户视为长期相处的伙伴。",
-        familiarity_source: "runtime_state.relationship"
-      }
-    };
-  const activeSkillPrompt = [
-      "<role_skill>",
-      JSON.stringify(previewSkill, null, 2),
-      "</role_skill>",
-    "",
-      "<output_contract>",
-      "priority=output_contract>role_skill.identity>role_skill.style>runtime_policy>memory",
-      "reply_channel=visible_dialogue_only",
-      "default_sentence_count=1..3",
-      "forbidden=markdown|bullet_list|analysis|meta_commentary|assistant_voice",
-      "state_values_visibility=hidden",
-      "profile_visibility=hidden",
-      "speech_marker=[[SPEECH]]",
-      "</output_contract>"
-  ].join("\n");
+
+  // 最终角色 Skill：档案生成版 ⊕ 手写字段级覆盖 + custom_block 保留区块。
+  // 与主进程 ai.cjs 实际送模型的提示词共用同一份逻辑（electron/profile-skill.cjs）。
+  const activeSkillPrompt = activeProfile
+    ? buildFinalSkillText(activeProfile)
+    : "当前没有可生成角色 Skill 的档案。";
 
   async function saveProfilePatch(patch: Partial<TrainingProfile>) {
     if (!activeProfile) return;
@@ -249,6 +251,8 @@ export function TrainingView() {
     const nextProfile: TrainingProfile = {
       ...activeProfile,
       ...patch,
+      // 档案被改动时以档案为主：清空手写覆盖，但保留 custom_block 区块。
+      ...(patch.character ? { skillOverrides: null } : {}),
       updatedAt: now
     };
     const nextProfiles = trainingProfiles.map((profile) =>
@@ -261,6 +265,82 @@ export function TrainingView() {
       ...(patch.documents ? { documents: nextProfile.documents } : {}),
       ...(patch.memories ? { memories: nextProfile.memories } : {})
     });
+  }
+
+  // 手动压缩：全部原文日志并进摘要，recent 清空。
+  async function compressMemoryLog() {
+    if (!activeProfile || memoryBusy) return;
+    const confirmed = window.confirm(
+      "确定把全部原文日志压缩进摘要吗？压缩后原文列表会清空，内容并入摘要保存。"
+    );
+    if (!confirmed) return;
+    setMemoryBusy(true);
+    try {
+      const result = await window.deskPet.compressMemoryLog(activeProfile.id);
+      if (!result.ok) {
+        window.alert(result.error || "压缩失败。");
+      }
+    } finally {
+      setMemoryBusy(false);
+    }
+  }
+
+  async function clearMemoryLog() {
+    if (!activeProfile) return;
+    const confirmed = window.confirm(
+      "确定清空这个档案的全部记忆日志（包括摘要）吗？此操作不可恢复。"
+    );
+    if (!confirmed) return;
+    await window.deskPet.clearMemoryLog(activeProfile.id);
+  }
+
+  // 「直接改 Skill」：展开编辑区，初始内容为当前最终 Skill 文本。
+  function openSkillEditor() {
+    if (!activeProfile) return;
+    setSkillDraft(buildFinalSkillText(activeProfile));
+    setSkillError("");
+    setSkillEditorOpen(true);
+  }
+
+  function closeSkillEditor() {
+    setSkillEditorOpen(false);
+    setSkillError("");
+  }
+
+  async function saveSkillEdits() {
+    if (!activeProfile) return;
+    const parsed = parseSkillText(skillDraft);
+    if (!parsed.ok) {
+      setSkillError(parsed.error);
+      return;
+    }
+    const generated = buildGeneratedSkill(activeProfile);
+    // 字段级覆盖：只保留与档案生成版不同的字段。
+    const roleSkillOverride = diffSkillField(generated.skill, parsed.skill);
+    const overrides: TrainingProfile["skillOverrides"] = {
+      ...(roleSkillOverride ? { roleSkill: roleSkillOverride } : {}),
+      ...(parsed.contract !== generated.contract
+        ? { outputContract: parsed.contract }
+        : {}),
+      ...(parsed.extraSections.length
+        ? { extraSections: parsed.extraSections }
+        : {})
+    };
+    const nextProfile: TrainingProfile = {
+      ...activeProfile,
+      skillOverrides: Object.keys(overrides).length ? overrides : null,
+      customBlocks: parsed.customBlocks,
+      updatedAt: new Date().toISOString()
+    };
+    const nextProfiles = trainingProfiles.map((profile) =>
+      profile.id === activeProfile.id ? nextProfile : profile
+    );
+    await updateState({
+      trainingProfiles: nextProfiles,
+      activeTrainingProfileId: nextProfile.id
+    });
+    setSkillEditorOpen(false);
+    setSkillError("");
   }
 
   async function saveService(
@@ -1498,29 +1578,69 @@ export function TrainingView() {
                 </p>
               </div>
               <div className="module-source-card">
-                <div>
-                  <span>训练来源角色档案</span>
-                  <strong>{activeProfile?.name || "未选择角色档案"}</strong>
-                  <button
-                    type="button"
-                    disabled={!activeProfile}
-                    onClick={() => setProfileEditorOpen(true)}
-                  >
-                    编辑档案
-                  </button>
+                <div className="module-source-head">
+                  <div className="module-source-title">
+                    <span>训练来源角色档案</span>
+                    <strong>{activeProfile?.name || "未选择角色档案"}</strong>
+                  </div>
+                  <div className="module-source-actions">
+                    <button
+                      type="button"
+                      disabled={!activeProfile}
+                      onClick={() => setProfileEditorOpen(true)}
+                    >
+                      编辑档案
+                    </button>
+                    <button
+                      type="button"
+                      className="module-source-skill"
+                      disabled={!activeProfile}
+                      onClick={openSkillEditor}
+                    >
+                      直接改 Skill
+                    </button>
+                  </div>
                 </div>
                 <p>
-                    角色 Skill 保持稳定；运行时 Prompt 会根据当前桌宠的状态变化。
-                    两者会按“角色 Skill 优先，状态只调整语气”的顺序一起送入模型。
+                  角色 Skill 保持稳定；运行时 Prompt 会根据当前桌宠的状态变化。
+                  两者会按“角色 Skill 优先，状态只调整语气”的顺序一起送入模型。
                 </p>
                 <label className="module-skill-preview">
-                    <span>角色 Skill（稳定，不随状态变化）</span>
+                    <span>角色 Skill（最终版：档案生成 + 手写覆盖 + 保留区块）</span>
                   <textarea
                     readOnly
                     value={activeSkillPrompt}
                     rows={8}
                   />
                 </label>
+                {skillEditorOpen && (
+                  <div className="skill-editor">
+                    <label className="module-skill-preview">
+                      <span>
+                        直接编辑 Skill：保存后只覆盖改动的字段；改动档案后以档案为准。
+                        用 &lt;custom_block name="区块名"&gt;…&lt;/custom_block&gt; 声明的区块会被永久保留。
+                      </span>
+                      <textarea
+                        value={skillDraft}
+                        rows={16}
+                        spellCheck={false}
+                        onChange={(event) => {
+                          setSkillDraft(event.target.value);
+                          if (skillError) setSkillError("");
+                        }}
+                      />
+                    </label>
+                    {skillError && <span className="skill-editor-error">{skillError}</span>}
+                    <div className="skill-editor-actions">
+                      <button type="button" onClick={() => void saveSkillEdits()}>
+                        保存修改
+                      </button>
+                      <button type="button" onClick={closeSkillEditor}>
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
                   <label className="module-skill-preview">
                     <span>运行时 Prompt（自动生成，不保存）</span>
                     <textarea
@@ -1529,6 +1649,60 @@ export function TrainingView() {
                       rows={6}
                     />
                   </label>
+              </div>
+              <div className="memory-log-panel">
+                <div className="section-heading">
+                  <span className="section-kicker">记忆日志</span>
+                  <h2>这个档案记得的相处记录</h2>
+                  <p>
+                    对话与关键行为会自动记录在这里，角色每次开口前会先参考这些记忆。
+                    原文满 50 条会自动压缩：最旧的内容并进摘要、保留最近 20 条原文。
+                    每个档案的记忆相互独立。
+                  </p>
+                </div>
+                <label className="module-skill-preview">
+                  <span>记忆摘要</span>
+                  <textarea
+                    readOnly
+                    rows={4}
+                    value={memoryLogSummary}
+                    placeholder="还没有摘要。日志足够多或手动压缩后，会自动生成摘要。"
+                  />
+                </label>
+                <div className="memory-log-actions">
+                  <button
+                    className="primary-small"
+                    type="button"
+                    onClick={() => void compressMemoryLog()}
+                    disabled={memoryLogRecent.length === 0 || memoryBusy}
+                  >
+                    <Archive size={14} />
+                    {memoryBusy ? "压缩中…" : "手动压缩"}
+                  </button>
+                  <button
+                    className="danger-button"
+                    type="button"
+                    onClick={() => void clearMemoryLog()}
+                    disabled={
+                      (!memoryLogSummary && memoryLogRecent.length === 0) ||
+                      memoryBusy
+                    }
+                  >
+                    <Trash2 size={14} />
+                    清空日志
+                  </button>
+                </div>
+                <label className="module-skill-preview">
+                  <span>原文日志（共 {memoryLogRecent.length} 条，最新在前）</span>
+                  <textarea
+                    readOnly
+                    rows={10}
+                    value={formatMemoryLogText(
+                      memoryLogRecent.slice().reverse()
+                    )}
+                    placeholder="还没有记录。和角色聊天或互动后，日志会出现在这里。"
+                  />
+                </label>
               </div>
               {false && (
               <div className="service-config">

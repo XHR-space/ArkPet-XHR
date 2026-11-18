@@ -212,6 +212,12 @@ contextBridge.exposeInMainWorld("deskPet", {
     ipcRenderer.invoke("ai:chat-stream", messages, aiModuleId, requestId, petId),
   onChatStream: (callback) =>
     subscribe("ai:chat-stream", callback),
+  getMemoryLog: (profileId) =>
+    ipcRenderer.invoke("memory-log:get", profileId),
+  clearMemoryLog: (profileId) =>
+    ipcRenderer.invoke("memory-log:clear", profileId),
+  compressMemoryLog: (profileId) =>
+    ipcRenderer.invoke("memory-log:compress", profileId),
   speak: (text, voiceId, config) =>
     ipcRenderer.invoke("voice:speak", text, voiceId, config),
   voiceAgent: {
@@ -240,6 +246,7 @@ contextBridge.exposeInMainWorld("deskPet", {
   openPetStore: () => ipcRenderer.invoke("data:open-pet-store"),
   openDataFolder: () => ipcRenderer.invoke("data:open-folder"),
   openSoftwareFolder: () => ipcRenderer.invoke("data:open-software-folder"),
+  changeDataLocation: () => ipcRenderer.invoke("data:change-location"),
   exportBackup: () => ipcRenderer.invoke("data:export-backup"),
   importBackup: () => ipcRenderer.invoke("data:import-backup"),
   updateStatus: () => ipcRenderer.invoke("update:status"),

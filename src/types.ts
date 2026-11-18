@@ -81,6 +81,10 @@ export type PetDesktopLayout = {
   displayFrame: {
     width: number;
     height: number;
+    /** 显示框中心相对碰撞框中心的水平偏移（逻辑像素，镜像时取反） */
+    offsetX?: number;
+    /** 显示框中心相对碰撞框中心的垂直偏移（逻辑像素） */
+    offsetY?: number;
   };
   collision: PetLayoutBox;
   interaction: PetLayoutBox;
@@ -324,6 +328,8 @@ export type TrainingProfile = {
   character: CharacterProfile;
   documents: TrainingDocument[];
   memories: MemoryRecord[];
+  /** 角色档案记忆日志：对话与关键行为记录 + 压缩摘要，各档案独立。 */
+  memoryLog?: MemoryLog;
   voiceProfileIds: string[];
   aiModuleIds: string[];
   /** 同上：对话只输出台词，不输出旁白。 */
@@ -337,6 +343,41 @@ export type TrainingProfile = {
   };
   createdAt: string;
   updatedAt: string;
+  /** 「直接改 Skill」的手写字段级覆盖；档案改动时清空（customBlocks 保留）。 */
+  skillOverrides?: SkillOverridePatch | null;
+  /** 用 <custom_block name="…">…</custom_block> 声明的永久保留区块，档案改动不清除。 */
+  customBlocks?: SkillCustomBlock[];
+};
+
+/** 角色档案记忆日志：一条原始记录。 */
+export type MemoryLogEntry = {
+  id: string;
+  kind: "dialogue" | "behavior" | "module";
+  source?: string;
+  text: string;
+  createdAt: string;
+};
+
+/** 角色档案记忆日志：压缩摘要 + 最近原文。 */
+export type MemoryLog = {
+  summary?: string;
+  recent: MemoryLogEntry[];
+};
+
+/** Skill 手写覆盖补丁：只覆盖出现过的字段，未出现字段仍由档案生成。 */
+export type SkillOverridePatch = {
+  /** role_skill 内 JSON 的字段级覆盖（深合并进档案生成版）。 */
+  roleSkill?: Record<string, unknown>;
+  /** 整体替换 output_contract 区块文本。 */
+  outputContract?: string;
+  /** 用户手写的其他标签区块，按顺序追加在 output_contract 之后。 */
+  extraSections?: { tag: string; content: string }[];
+};
+
+/** 永久保留的自定义区块（<custom_block name="…">…</custom_block>）。 */
+export type SkillCustomBlock = {
+  name: string;
+  content: string;
 };
 
 export type AuxiliaryWindowConfig = {
@@ -760,9 +801,10 @@ export type DeskPetApi = {
       moduleState?: Record<string, Record<string, PetModuleStateValue>>;
       desktopPosition?: PetDesktopPosition;
       /**
-       * v3 布局。碰撞体位置以 `placement`（逻辑单位）为准；主进程未支持时忽略。
+       * v3 布局补丁。碰撞体位置以 `placement`（逻辑单位）为准；
+       * 支持局部更新（如只写 placement），主进程未支持时忽略。
        */
-      layout?: PetDesktopLayout;
+      layout?: Partial<PetDesktopLayout>;
     }
   ) => Promise<AppState>;
   importVoiceLines: (petId: string) => Promise<{
@@ -1039,6 +1081,13 @@ export type DeskPetApi = {
   onChatStream: (
     callback: (payload: { delta?: string; requestId?: string }) => void
   ) => () => void;
+  getMemoryLog: (profileId: string) => Promise<MemoryLog | null>;
+  clearMemoryLog: (profileId: string) => Promise<MemoryLog | null>;
+  compressMemoryLog: (profileId: string) => Promise<{
+    ok: boolean;
+    memoryLog?: MemoryLog | null;
+    error?: string;
+  }>;
   speak: (
     text: string,
     voiceId?: string,
@@ -1122,6 +1171,13 @@ export type DeskPetApi = {
   openPetStore: () => Promise<boolean>;
   openDataFolder: () => Promise<boolean>;
   openSoftwareFolder: () => Promise<boolean>;
+  changeDataLocation: () => Promise<{
+    canceled?: boolean;
+    ok?: boolean;
+    newPath?: string;
+    oldBackup?: string;
+    error?: string;
+  }>;
   updateStatus: () => Promise<UpdateStatus>;
   checkForUpdates: () => Promise<UpdateStatus>;
   installUpdate: () => Promise<boolean>;

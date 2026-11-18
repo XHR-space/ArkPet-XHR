@@ -11,7 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import { clamp } from "../lib/format";
 import { makeId } from "../lib/id";
-import { getVisualSize } from "../lib/renderConfig";
+import { getVisualSize, resolvePetLayout } from "../lib/renderConfig";
 import { chooseBoundAnimation } from "../lib/spineActions";
 import { resolveDialogModule } from "../lib/dialogModules";
 import { decayModuleMetrics, readModuleMetric } from "../lib/moduleMetrics";
@@ -43,6 +43,8 @@ type EntitySnapshot = {
   displayHeight: number;
   hitboxOffsetX: number;
   hitboxOffsetY: number;
+  hitboxWidth: number;
+  hitboxHeight: number;
   vx: number;
   vy: number;
   direction: 1 | -1;
@@ -129,8 +131,6 @@ type DesktopPositionSource = Pick<
   "x" | "y" | "direction"
 >;
 
-const BASE_WIDTH = 104;
-const BASE_HEIGHT = 134;
 const DRAG_VISUAL_DELAY_MS = 340;
 const DRAG_CLICK_DISTANCE_PX = 8;
 
@@ -181,8 +181,20 @@ function getStateDesktopPositionKey(
   state: AppState | null,
   petId: string
 ) {
-  const position = state?.pets.find((pet) => pet.id === petId)
-    ?.desktopPosition;
+  const pet = state?.pets.find((candidate) => candidate.id === petId);
+  // 位置唯一权威是 layout.placement（碰撞框中心）；legacy 数据仍保留
+  // desktopPosition 字段时退而读它（旧语义为宿主左上角，仅用于比较）。
+  const placement = pet?.layout?.placement;
+  if (
+    placement &&
+    Number.isFinite(placement.x) &&
+    Number.isFinite(placement.y)
+  ) {
+    return `${Math.round(placement.x)}:${Math.round(placement.y)}:${
+      placement.direction === -1 ? -1 : 1
+    }`;
+  }
+  const position = pet?.desktopPosition;
   return hasValidDesktopPosition(position)
     ? desktopPositionKey(position)
     : "";
@@ -191,14 +203,21 @@ function getStateDesktopPositionKey(
 async function persistEntityDesktopPosition(
   petId: string,
   entity: DesktopPositionSource,
-  constrainedPosition?: PetDesktopPosition
+  constrainedPlacement?: PetDesktopPosition
 ): Promise<AppState | null> {
   const position =
-    constrainedPosition ?? getEffectiveDesktopPosition(entity);
+    constrainedPlacement ?? getEffectiveDesktopPosition(entity);
   if (!position) return null;
   try {
+    // 位置统一写 layout.placement（碰撞框中心、逻辑像素）。
     return await window.deskPet.applyPetPatch(petId, {
-      desktopPosition: position
+      layout: {
+        placement: {
+          x: position.x,
+          y: position.y,
+          direction: position.direction === -1 ? -1 : 1
+        }
+      }
     });
   } catch {
     return null;
@@ -506,10 +525,11 @@ export function MultiPetOverlay() {
         registry.current.values()
       ).map((entity) => ({
         petId: entity.id,
+        // 交互范围（点击/拖拽区域）按 V3 interaction 框上报。
         x: entity.x + entity.hitboxOffsetX,
         y: entity.y + entity.hitboxOffsetY,
-        width: entity.width,
-        height: entity.height,
+        width: entity.hitboxWidth,
+        height: entity.hitboxHeight,
         visible: !suppressedPanelClaims.has(entity.id)
       }));
       window.deskPet.reportPetRegions(regions);
@@ -761,8 +781,27 @@ function MultiPetEntity({
     onDragInteract,
   foodNotice
 }: EntityProps) {
+  const desktopRenderConfig = pet.desktopRenderConfig || pet.renderConfig;
+  const scale = (overlaySettings.scale || 1) * (pet.scale || 1);
+  // V3 三个范围 + placement 是运行时几何的唯一权威来源。
+  // 旧角色没有 v3 layout 时由 resolvePetLayout 从 legacy 配置迁移补齐。
+  const resolvedLayout = resolvePetLayout(
+    pet.layout,
+    desktopRenderConfig,
+    pet.desktopPosition
+  );
+  // 碰撞体积尺寸（物理体，与 layout.collision 对应）。
+  const width = resolvedLayout.collision.width * scale;
+  const height = resolvedLayout.collision.height * scale;
+  const visual = getVisualSize(desktopRenderConfig);
+  const visualWidth = visual.visualWidth * scale;
+  const visualHeight = visual.visualHeight * scale;
+  // 显示框（画布）尺寸走 V3 displayFrame；Spine 素材适配尺寸沿用旧 visual。
+  const canvasWidth = resolvedLayout.displayFrame.width * scale;
+  const canvasHeight = resolvedLayout.displayFrame.height * scale;
   const hostRef = useRef<HTMLDivElement | null>(null);
   const visualRef = useRef<HTMLDivElement | null>(null);
+  const frameRef = useRef<HTMLDivElement | null>(null);
   const hitboxRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const autoBubbleRef = useRef<HTMLElement | null>(null);
@@ -772,10 +811,18 @@ function MultiPetEntity({
   const dragSessionRef = useRef<DragSession | null>(null);
   const dragPetInputSuppressedRef = useRef(false);
   const dragGlobalWatchdogTimerRef = useRef<number | null>(null);
-  const initialDesktopPositionKey = hasValidDesktopPosition(
-    pet.desktopPosition
-  )
-    ? desktopPositionKey(pet.desktopPosition)
+  // 上次保存位置 = layout.placement（碰撞框中心）；legacy 数据退而读 desktopPosition。
+  const hasSavedPosition = Boolean(
+    pet.layout?.placement &&
+      Number.isFinite(pet.layout.placement.x) &&
+      Number.isFinite(pet.layout.placement.y)
+  ) || hasValidDesktopPosition(pet.desktopPosition);
+  const initialDesktopPositionKey = hasSavedPosition
+    ? desktopPositionKey({
+        x: resolvedLayout.placement.x,
+        y: resolvedLayout.placement.y,
+        direction: resolvedLayout.placement.direction
+      })
     : "";
   const persistedDesktopPositionRef = useRef(initialDesktopPositionKey);
   const desiredDesktopPositionKeyRef = useRef(initialDesktopPositionKey);
@@ -805,8 +852,9 @@ function MultiPetEntity({
   const [visualState, setVisualState] = useState<
     "idle" | "walk" | "fall" | "land" | "drag" | "sleep"
   >("idle");
+  // 朝向唯一权威是 layout.placement.direction（legacy 时来自 desktopPosition.direction）。
   const initialDirection: 1 | -1 =
-    pet.desktopPosition?.direction === -1 ? -1 : 1;
+    resolvedLayout.placement.direction === -1 ? -1 : 1;
   const [direction, setDirection] = useState<1 | -1>(initialDirection);
   const visualStateRef = useRef<
     "idle" | "walk" | "fall" | "land" | "drag" | "sleep"
@@ -889,7 +937,11 @@ function MultiPetEntity({
     hitboxLeft: Number.NaN,
     hitboxTop: Number.NaN,
     hitboxWidth: Number.NaN,
-    hitboxHeight: Number.NaN
+    hitboxHeight: Number.NaN,
+    frameLeft: Number.NaN,
+    frameTop: Number.NaN,
+    frameWidth: Number.NaN,
+    frameHeight: Number.NaN
   });
   const voiceProfile = voiceProfiles.find(
     (profile) => profile.id === pet.modulePlugins?.voiceProfileId
@@ -957,9 +1009,18 @@ function MultiPetEntity({
     clearPositionPersistTimer();
     const effectivePosition = getEffectiveDesktopPosition(entity);
     if (!effectivePosition) return false;
+    // 保存的是碰撞框中心（placement 语义，逻辑像素）。
     const position: PetDesktopPosition = {
-      x: clamp(effectivePosition.x, bounds.left, maxPhysicsX),
-      y: clamp(effectivePosition.y, 0, maxPhysicsY),
+      x: clamp(
+        effectivePosition.x + width / 2,
+        bounds.left + width / 2,
+        Math.max(bounds.left + width / 2, bounds.right - width / 2)
+      ),
+      y: clamp(
+        effectivePosition.y + height / 2,
+        height / 2,
+        Math.max(height / 2, bounds.floor - height / 2)
+      ),
       direction: effectivePosition.direction
     };
     const key = desktopPositionKey(position);
@@ -1072,10 +1133,6 @@ function MultiPetEntity({
     const autoTalkAtRef = useRef(0);
     const autoVoiceEnabledRef = useRef(autoVoiceEnabled);
     const [zIndex, setZIndex] = useState(10);
-    const desktopRenderConfig = pet.desktopRenderConfig || pet.renderConfig;
-    const scale = (overlaySettings.scale || 1) * (pet.scale || 1);
-    const width = (desktopRenderConfig?.hitboxWidth || BASE_WIDTH) * scale;
-    const height = (desktopRenderConfig?.hitboxHeight || BASE_HEIGHT) * scale;
 
   useEffect(() => {
     const unsubscribe = subscribeMenuOwner((ownerPetId) => {
@@ -1181,7 +1238,7 @@ function MultiPetEntity({
     const element = menuRef.current;
     if (!element) return;
     const next = positionBesideDisplay(
-      getPanelAnchorRect(),
+      getInteractionAnchorRect(),
       element.offsetWidth || 178,
       element.offsetHeight || 120
     );
@@ -1316,15 +1373,6 @@ function MultiPetEntity({
       },
       []
     );
-  const visual = getVisualSize(desktopRenderConfig);
-  const visualWidth = visual.visualWidth * scale;
-  const visualHeight = visual.visualHeight * scale;
-  const canvasWidth =
-    Math.max(desktopRenderConfig?.displayWidth || 260, visual.visualWidth) *
-    scale;
-  const canvasHeight =
-    Math.max(desktopRenderConfig?.displayHeight || 320, visual.visualHeight) *
-    scale;
   const bounds = useMemo(
     () => ({
       left: metrics.workArea.x - metrics.bounds.x,
@@ -1334,24 +1382,38 @@ function MultiPetEntity({
     }),
     [metrics]
   );
-  const savedDesktopPosition = hasValidDesktopPosition(pet.desktopPosition)
-    ? pet.desktopPosition
+  // 上次保存位置 = layout.placement（碰撞框中心）。resolvedLayout 已保证有限值，
+  // 这里用 hasSavedPosition 区分“从未保存过位置”的旧角色（保持随机出生点）。
+  const savedPlacement: PetDesktopPosition | null = hasSavedPosition
+    ? {
+        x: resolvedLayout.placement.x,
+        y: resolvedLayout.placement.y,
+        direction: resolvedLayout.placement.direction
+      }
     : null;
   const maxPhysicsX = Math.max(bounds.left, bounds.right - width);
   const maxPhysicsY = Math.max(0, bounds.floor - height);
-  const initialPhysicsX = savedDesktopPosition
-    ? clamp(savedDesktopPosition.x, bounds.left, maxPhysicsX)
+  const initialPhysicsX = savedPlacement
+    ? clamp(savedPlacement.x - width / 2, bounds.left, maxPhysicsX)
     : bounds.left + 80 + Math.random() * 180;
-  const initialPhysicsY = savedDesktopPosition
-    ? clamp(savedDesktopPosition.y, 0, maxPhysicsY)
+  const initialPhysicsY = savedPlacement
+    ? clamp(savedPlacement.y - height / 2, 0, maxPhysicsY)
     : bounds.floor - height;
   const savedPositionNeedsRepair = Boolean(
-    savedDesktopPosition &&
-      (savedDesktopPosition.x < bounds.left ||
-        savedDesktopPosition.x > maxPhysicsX ||
-        savedDesktopPosition.y < 0 ||
-        savedDesktopPosition.y > maxPhysicsY)
+    savedPlacement &&
+      (savedPlacement.x - width / 2 < bounds.left ||
+        savedPlacement.x - width / 2 > maxPhysicsX ||
+        savedPlacement.y - height / 2 < 0 ||
+        savedPlacement.y - height / 2 > maxPhysicsY)
   );
+  // 初始朝向镜像后的三个范围偏移（用于物理体初值，运行期由 sync 持续更新）。
+  const initialFacing = initialDirection === -1 ? -1 : 1;
+  const initialDisplayOffsetX =
+    (resolvedLayout.displayFrame.offsetX ?? 0) * initialFacing * scale;
+  const initialDisplayOffsetY =
+    (resolvedLayout.displayFrame.offsetY ?? 0) * scale;
+  const interactionWidth = resolvedLayout.interaction.width * scale;
+  const interactionHeight = resolvedLayout.interaction.height * scale;
   const physics = useRef<PhysicsState>({
     id: pet.id,
     x: initialPhysicsX,
@@ -1360,8 +1422,18 @@ function MultiPetEntity({
     height,
     displayWidth: canvasWidth,
     displayHeight: canvasHeight,
-    hitboxOffsetX: (desktopRenderConfig?.hitboxOffsetX || 0) * scale,
-    hitboxOffsetY: (desktopRenderConfig?.hitboxOffsetY || 0) * scale,
+    hitboxOffsetX:
+      width / 2 +
+      initialDisplayOffsetX +
+      resolvedLayout.interaction.offsetX * initialFacing * scale -
+      interactionWidth / 2,
+    hitboxOffsetY:
+      height / 2 +
+      initialDisplayOffsetY +
+      resolvedLayout.interaction.offsetY * scale -
+      interactionHeight / 2,
+    hitboxWidth: interactionWidth,
+    hitboxHeight: interactionHeight,
     vx: 0,
     vy: 0,
     direction: initialDirection,
@@ -1405,9 +1477,19 @@ function MultiPetEntity({
   }, [savedPositionNeedsRepair]);
 
   useEffect(() => {
-    const serverKey = hasValidDesktopPosition(pet.desktopPosition)
-      ? desktopPositionKey(pet.desktopPosition)
-      : "";
+    // 服务器侧最新位置：layout.placement（碰撞框中心）为权威，
+    // legacy 数据退而读 desktopPosition（旧语义为宿主左上角，仅用于比较）。
+    const placement = pet.layout?.placement;
+    const serverKey =
+      placement &&
+      Number.isFinite(placement.x) &&
+      Number.isFinite(placement.y)
+        ? `${Math.round(placement.x)}:${Math.round(placement.y)}:${
+            placement.direction === -1 ? -1 : 1
+          }`
+        : hasValidDesktopPosition(pet.desktopPosition)
+          ? desktopPositionKey(pet.desktopPosition)
+          : "";
     const previousServerKey = lastServerDesktopPositionKeyRef.current;
     lastServerDesktopPositionKeyRef.current = serverKey;
     const desiredKey = desiredDesktopPositionKeyRef.current;
@@ -1425,6 +1507,9 @@ function MultiPetEntity({
       schedulePositionPersist();
     }
   }, [
+    pet.layout?.placement?.x,
+    pet.layout?.placement?.y,
+    pet.layout?.placement?.direction,
     pet.desktopPosition?.x,
     pet.desktopPosition?.y,
     pet.desktopPosition?.direction
@@ -1442,6 +1527,7 @@ function MultiPetEntity({
   const groundBounce =
     clamp(overlaySettings.groundBounce ?? 45, 0, 100) / 100;
 
+  // 面板锚点（聊天气泡、语音指示器、自动回复气泡等）：跟碰撞体积。
   function getPanelAnchorRect() {
     const entity = physics.current;
     return {
@@ -1452,17 +1538,48 @@ function MultiPetEntity({
     };
   }
 
+  // 右键菜单锚点：跟交互范围（点击/拖拽区域）。
+  function getInteractionAnchorRect() {
+    const entity = physics.current;
+    return {
+      x: entity.x + entity.hitboxOffsetX,
+      y: entity.y + entity.hitboxOffsetY,
+      width: entity.hitboxWidth,
+      height: entity.hitboxHeight
+    };
+  }
+
   function sync() {
     const entity = physics.current;
     const styleCache = styleCacheRef.current;
+    const facing = entity.direction === -1 ? -1 : 1;
+    // 显示框中心相对碰撞框中心（placement）的偏移，X 随朝向镜像。
+    const displayOffsetX =
+      (resolvedLayout.displayFrame.offsetX ?? 0) * facing * scale;
+    const displayOffsetY =
+      (resolvedLayout.displayFrame.offsetY ?? 0) * scale;
+    const nextHitboxWidth = resolvedLayout.interaction.width * scale;
+    const nextHitboxHeight = resolvedLayout.interaction.height * scale;
+    // 交互框中心相对碰撞框中心：显示框偏移 + 交互框自身偏移（X 随朝向镜像）。
     const nextHitboxOffsetX =
-      (desktopRenderConfig?.hitboxOffsetX || 0) * scale;
+      width / 2 +
+      displayOffsetX +
+      resolvedLayout.interaction.offsetX * facing * scale -
+      nextHitboxWidth / 2;
     const nextHitboxOffsetY =
-      (desktopRenderConfig?.hitboxOffsetY || 0) * scale;
+      height / 2 +
+      displayOffsetY +
+      resolvedLayout.interaction.offsetY * scale -
+      nextHitboxHeight / 2;
+    // 显示框（画布）相对碰撞框的位置。
+    const nextFrameLeft = width / 2 + displayOffsetX - canvasWidth / 2;
+    const nextFrameTop = height / 2 + displayOffsetY - canvasHeight / 2;
     entity.width = width;
     entity.height = height;
     entity.hitboxOffsetX = nextHitboxOffsetX;
     entity.hitboxOffsetY = nextHitboxOffsetY;
+    entity.hitboxWidth = nextHitboxWidth;
+    entity.hitboxHeight = nextHitboxHeight;
     // v1.1.0 geometry positions the host directly from the physics entity.
     if (hostRef.current) {
       hostRef.current.style.transform = `translate3d(${entity.x}px, ${entity.y}px, 0)`;
@@ -1479,6 +1596,25 @@ function MultiPetEntity({
         styleCache.zIndex = zIndex;
       }
     }
+    // 显示框按 layout.displayFrame 相对碰撞框显式定位（画布框，非素材偏移）。
+    if (frameRef.current) {
+      if (styleCache.frameLeft !== nextFrameLeft) {
+        frameRef.current.style.left = `${nextFrameLeft}px`;
+        styleCache.frameLeft = nextFrameLeft;
+      }
+      if (styleCache.frameTop !== nextFrameTop) {
+        frameRef.current.style.top = `${nextFrameTop}px`;
+        styleCache.frameTop = nextFrameTop;
+      }
+      if (styleCache.frameWidth !== canvasWidth) {
+        frameRef.current.style.width = `${canvasWidth}px`;
+        styleCache.frameWidth = canvasWidth;
+      }
+      if (styleCache.frameHeight !== canvasHeight) {
+        frameRef.current.style.height = `${canvasHeight}px`;
+        styleCache.frameHeight = canvasHeight;
+      }
+    }
     if (hitboxRef.current) {
       if (styleCache.hitboxLeft !== entity.hitboxOffsetX) {
         hitboxRef.current.style.left = `${entity.hitboxOffsetX}px`;
@@ -1488,13 +1624,13 @@ function MultiPetEntity({
         hitboxRef.current.style.top = `${entity.hitboxOffsetY}px`;
         styleCache.hitboxTop = entity.hitboxOffsetY;
       }
-      if (styleCache.hitboxWidth !== entity.width) {
-        hitboxRef.current.style.width = `${entity.width}px`;
-        styleCache.hitboxWidth = entity.width;
+      if (styleCache.hitboxWidth !== entity.hitboxWidth) {
+        hitboxRef.current.style.width = `${entity.hitboxWidth}px`;
+        styleCache.hitboxWidth = entity.hitboxWidth;
       }
-      if (styleCache.hitboxHeight !== entity.height) {
-        hitboxRef.current.style.height = `${entity.height}px`;
-        styleCache.hitboxHeight = entity.height;
+      if (styleCache.hitboxHeight !== entity.hitboxHeight) {
+        hitboxRef.current.style.height = `${entity.hitboxHeight}px`;
+        styleCache.hitboxHeight = entity.hitboxHeight;
       }
     }
     entity.menu = undefined;
@@ -2647,8 +2783,7 @@ function MultiPetEntity({
         if (locked && !entity.dragging) setEntityVisual("idle");
       } else if (command.type === "release") {
         const origin = runtimeCommand.origin;
-        const saved = pet.desktopPosition;
-        const hasSavedPosition = hasValidDesktopPosition(saved);
+        // 从未保存过位置的旧角色：编辑器释放锁定时跳到光标位置。
         if (
           !hasSavedPosition &&
           Number.isFinite(origin?.x) &&
@@ -2737,10 +2872,8 @@ function MultiPetEntity({
     width,
     height,
     scale,
-    desktopRenderConfig?.hitboxOffsetX,
-    desktopRenderConfig?.hitboxOffsetY,
     effectiveWalkSpeed,
-    pet.desktopPosition
+    hasSavedPosition
   ]);
 
   useEffect(() => {
@@ -2865,8 +2998,18 @@ function MultiPetEntity({
     maybeSuppressDragPetInput();
     entity.vx = (dx / delta) * 720;
     entity.vy = (dy / delta) * 720;
-    entity.x = clientX - entity.dragOffsetX;
-    entity.y = clientY - entity.dragOffsetY;
+    // 拖拽中只限制“碰撞框不能整体拖出屏幕”（允许部分露出）：
+    // 碰撞框中心保持在屏幕工作区内，松手后由物理边界接管。
+    entity.x = clamp(
+      clientX - entity.dragOffsetX,
+      bounds.left - width / 2,
+      Math.max(bounds.left - width / 2, bounds.right - width / 2)
+    );
+    entity.y = clamp(
+      clientY - entity.dragOffsetY,
+      -height / 2,
+      Math.max(0, bounds.floor - height / 2)
+    );
     entity.lastPointerX = clientX;
     entity.lastPointerY = clientY;
     entity.lastPointerAt = now;
@@ -3610,59 +3753,65 @@ function MultiPetEntity({
         }`}
       >
         {pet.spine ? (
-          <SpinePet
-            skelUrl={pet.spine.skelUrl}
-            state={visualState}
-            actionBindings={pet.actionBindings}
-            boneMap={pet.boneMap}
-            fitWidth={visualWidth}
-            fitHeight={visualHeight}
-            displayWidth={canvasWidth}
-            displayHeight={canvasHeight}
-            offsetX={desktopRenderConfig?.offsetX}
-            offsetY={desktopRenderConfig?.offsetY}
-            anchorBottom
-            normalizeBodySize
-            speedMultiplier={animationSpeed}
-            className="multi-pet-spine"
-            onAnimationData={(items) => {
-              const names = items.map((item) => item.name);
-              const durations = Object.fromEntries(
-                items.map((item) => [item.name, item.duration])
-              );
-              const idleName = chooseBoundAnimation(
-                "idle",
-                pet.actionBindings,
-                names,
-                durations
-              );
-              const idleItem =
-                items.find((item) => item.name === idleName) ||
-                ["Special", "Relax", "Sit", "Idle", "Default"]
-                  .map((candidate) =>
-                    items.find(
-                      (item) =>
-                        item.name.toLowerCase() === candidate.toLowerCase()
-                    )
-                  )
-                  .find(Boolean);
-              if (idleItem && idleItem.duration > 0) {
-                idleActionDurationRef.current = Math.max(
-                  1000,
-                  idleItem.duration * 1000
+          <div
+            ref={frameRef}
+            className="multi-pet-frame"
+            style={{ position: "absolute" }}
+          >
+            <SpinePet
+              skelUrl={pet.spine.skelUrl}
+              state={visualState}
+              actionBindings={pet.actionBindings}
+              boneMap={pet.boneMap}
+              fitWidth={visualWidth}
+              fitHeight={visualHeight}
+              displayWidth={canvasWidth}
+              displayHeight={canvasHeight}
+              offsetX={desktopRenderConfig?.offsetX}
+              offsetY={desktopRenderConfig?.offsetY}
+              anchorBottom
+              normalizeBodySize
+              speedMultiplier={animationSpeed}
+              className="multi-pet-spine"
+              onAnimationData={(items) => {
+                const names = items.map((item) => item.name);
+                const durations = Object.fromEntries(
+                  items.map((item) => [item.name, item.duration])
                 );
+                const idleName = chooseBoundAnimation(
+                  "idle",
+                  pet.actionBindings,
+                  names,
+                  durations
+                );
+                const idleItem =
+                  items.find((item) => item.name === idleName) ||
+                  ["Special", "Relax", "Sit", "Idle", "Default"]
+                    .map((candidate) =>
+                      items.find(
+                        (item) =>
+                          item.name.toLowerCase() === candidate.toLowerCase()
+                      )
+                    )
+                    .find(Boolean);
+                if (idleItem && idleItem.duration > 0) {
+                  idleActionDurationRef.current = Math.max(
+                    1000,
+                    idleItem.duration * 1000
+                  );
+                }
+              }}
+              fallback={
+                <PetAvatar
+                  primary={pet.accent}
+                  secondary={pet.secondary}
+                  size={92 * scale}
+                  state={visualState}
+                  facing={direction < 0 ? "left" : "right"}
+                />
               }
-            }}
-            fallback={
-              <PetAvatar
-                primary={pet.accent}
-                secondary={pet.secondary}
-                size={92 * scale}
-                state={visualState}
-                facing={direction < 0 ? "left" : "right"}
-              />
-            }
-          />
+            />
+          </div>
         ) : (
           <PetAvatar
             primary={pet.accent}

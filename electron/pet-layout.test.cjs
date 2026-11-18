@@ -186,7 +186,13 @@ test("a) ArkPet 2.2.0 typical config migrates to v3", function () {
   assert.equal(result.layout.layoutVersion, 3);
   assert.equal(result.warnings.length, 0);
 
-  assert.deepEqual(result.layout.displayFrame, { width: 300, height: 323 });
+  // displayFrame 偏移与碰撞框偏移互为相反数：offsetY = 96/2 - 323/2 = -113.5
+  assert.deepEqual(result.layout.displayFrame, {
+    width: 300,
+    height: 323,
+    offsetX: 0,
+    offsetY: -113.5
+  });
 
   closeTo(result.layout.collision.width, 96, TOLERANCE, "collision.width");
   closeTo(result.layout.collision.height, 96, TOLERANCE, "collision.height");
@@ -225,7 +231,13 @@ test("b) v1.1 style config migrates to v3", function () {
   assert.equal(result.changed, true);
   assert.equal(result.warnings.length, 0);
 
-  assert.deepEqual(result.layout.displayFrame, { width: 260, height: 320 });
+  // displayFrame 偏移与碰撞框偏移互为相反数：offsetY = 134/2 - 320/2 = -93
+  assert.deepEqual(result.layout.displayFrame, {
+    width: 260,
+    height: 320,
+    offsetX: 0,
+    offsetY: -93
+  });
   closeTo(result.layout.collision.width, 104, TOLERANCE, "collision.width");
   closeTo(result.layout.collision.height, 134, TOLERANCE, "collision.height");
   closeTo(result.layout.collision.offsetX, 0, TOLERANCE, "collision.offsetX");
@@ -255,7 +267,13 @@ test("c) pet without renderConfig falls back to defaults and warns", function ()
   assert.ok(result.warnings.includes("missing-render-config"), "expected missing-render-config warning");
   assert.equal(result.source, "defaults");
 
-  assert.deepEqual(result.layout.displayFrame, { width: 260, height: 320 });
+  // displayFrame 偏移与碰撞框偏移互为相反数：offsetY = 134/2 - 320/2 = -93
+  assert.deepEqual(result.layout.displayFrame, {
+    width: 260,
+    height: 320,
+    offsetX: 0,
+    offsetY: -93
+  });
   closeTo(result.layout.collision.width, 104, TOLERANCE, "collision.width");
   closeTo(result.layout.collision.height, 134, TOLERANCE, "collision.height");
   closeTo(result.layout.collision.offsetX, 0, TOLERANCE, "collision.offsetX");
@@ -500,6 +518,35 @@ test("l) layout patch merge keeps unknown fields, forces v3 and does not mutate 
   assert.deepEqual(merged.placement, { x: 500.25, y: 600, direction: -1 });
   assert.deepEqual(current.placement, { x: 352, y: 667, direction: 1 }, "must not mutate the input");
   assert.equal(M.mergeLayoutPatch(null, null), null);
+});
+
+test("m) explicit displayFrame.offset moves the display centre (mirrored X)", function () {
+  const layout = {
+    layoutVersion: 3,
+    displayFrame: { width: 260, height: 320, offsetX: 40, offsetY: -30 },
+    collision: { width: 104, height: 134, offsetX: -40, offsetY: 30 },
+    interaction: { width: 104, height: 134, offsetX: 0, offsetY: 0 },
+    placement: { x: 352, y: 667, direction: -1 }
+  };
+  const rects = M.resolveLayoutRects(layout);
+  closeTo(rects.displayCenter.x, 312, TOLERANCE, "display centre X (mirrored 40)");
+  closeTo(rects.displayCenter.y, 637, TOLERANCE, "display centre Y");
+  // 碰撞框中心仍等于 placement。
+  closeTo(rects.collision.centerX, 352, TOLERANCE, "collision centre X");
+  closeTo(rects.collision.centerY, 667, TOLERANCE, "collision centre Y");
+});
+
+test("n) legacy v3 records without displayFrame.offset fall back to -collision", function () {
+  const layout = {
+    layoutVersion: 3,
+    displayFrame: { width: 260, height: 320 },
+    collision: { width: 104, height: 134, offsetX: 0, offsetY: 93 },
+    interaction: { width: 104, height: 134, offsetX: 0, offsetY: 93 },
+    placement: { x: 352, y: 667, direction: 1 }
+  };
+  const rects = M.resolveLayoutRects(layout);
+  closeTo(rects.displayCenter.x, 352, TOLERANCE, "display centre X");
+  closeTo(rects.displayCenter.y, 574, TOLERANCE, "display centre Y");
 });
 /* ------------------------------------------------------------ summary */
 

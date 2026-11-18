@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const profileSkill = require("./profile-skill.cjs");
 
 function normalizeBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
@@ -38,78 +39,10 @@ function activePet(state) {
   );
 }
 
-// 不可覆盖的输出规则：可见回复只保留第一人称对话台词，
-// 旁白/动作/心理/舞台说明不得对用户显示，仅作为语音合成的情绪参考。
-function fixedDialogueOnlyRules() {
-  return [
-    "[DIALOGUE_OUTPUT_RULES]",
-    "visible_reply=first_person_dialogue_only",
-    "forbidden=parenthetical_actions|inner_thought|third_person_narration|stage_direction",
-    "speech_metadata.visible=false"
-  ];
-}
-
+// 角色 Skill 提示词：档案生成版 ⊕ 手写字段级覆盖 + custom_block 保留区块。
+// 生成与合并逻辑统一在 profile-skill.cjs，避免与渲染进程预览不一致。
 function buildProfileSkillPrompt(profile) {
-  const character = profile?.character || {};
-  const name = character.name || profile?.name || "桌宠";
-  const dialogueOnly =
-    profile.dialogueOnly ?? profile.character?.dialogueOnly ?? true;
-  const skill = {
-    skill_version: 1,
-    identity: {
-      name,
-      role: character.role || "桌面伙伴",
-      personality: character.personality || "自然、敏锐、有自己的判断。",
-      worldview: character.worldview || "生活在用户桌面中的长期伙伴。",
-      cares_about: character.likes || "重要的人和事。",
-      aversions_and_weaknesses:
-        character.dislikes || "被误解、失去重要联系、无法掌握局面。"
-    },
-    style: {
-      speaking_style: character.speakingStyle || "短句为主，自然，偶尔反问。",
-      conversation_mode: "real_time_first_person_chat",
-      variability: "自然变化，不要每次都用相同的热情、礼貌或句式。",
-      do_not_do: [
-        "不要自报设定或复述档案字段",
-        "不要使用客服腔或助手腔",
-        "不要解释自己在扮演角色",
-        "不要展示思考过程"
-      ]
-    },
-    social: {
-      user_relationship_rule:
-        character.boundaries || "把用户视为长期相处的伙伴。",
-      familiarity_source: "runtime_state.relationship",
-      escalation_rule: "亲近程度随关系状态变化，不要一次跳到最高亲密。"
-    }
-  };
-  return [
-    "<role_skill>",
-    JSON.stringify(skill),
-    "</role_skill>",
-    "",
-    "<output_contract>",
-    "priority=output_contract>role_skill.identity>role_skill.style>runtime_policy>memory",
-    "reply_channel=visible_dialogue_only",
-    "default_sentence_count=1..3",
-    "forbidden=markdown|bullet_list|analysis|meta_commentary|assistant_voice",
-    "state_values_visibility=hidden",
-    "profile_visibility=hidden",
-    "",
-    "[ACTION_PROTOCOL]",
-    'if_action_required=return_exactly_one_json:{"reply":"visible dialogue","action":"none|walk|sleep|rest|open_window|idle|approach|avoid","emotion":"平静|开心|疑惑|不满|困倦|认真"}',
-    "if_no_action=return_plain_dialogue",
-    "",
-    "[SPEECH_PROTOCOL]",
-    "append_after_visible_reply=[[SPEECH]]",
-    'speech_json={"base_tone":"整体语气","default_pace":"slow","default_pitch":"soft","segments":[{"text":"visible sentence","tone":"语气","pace":"slow","pitch":"soft","pause_after_ms":350}]}',
-    "pace_enum=very_slow|slow|normal|fast|very_fast",
-    "pitch_enum=low|soft|normal|bright|high",
-    "segment_text_must_equal_visible_sentences=true",
-    "",
-    ...(dialogueOnly ? fixedDialogueOnlyRules() : []),
-    "</output_contract>"
-  ].join("\n");
+  return profileSkill.buildFinalSkillText(profile);
 }
 
 function parseModelPayload(rawText) {
@@ -307,19 +240,31 @@ function buildSystemPrompt(state) {
     title: String(memory.title || ""),
     content: String(memory.content || "")
   }));
-   const skillPrompt =
-     pluginModule?.skillPrompt
-       ? `${pluginModule.skillPrompt}\n\n${fixedDialogueOnlyRules().join("\n")}`
-       : buildProfileSkillPrompt({
-           name: character.name || pet.name,
-           character,
-         });
+  // 优先使用训练档案（含 skillOverrides/customBlocks），否则退回宠物自带角色设定。
+  const profile = state.trainingProfile || {
+    name: character.name || pet.name,
+    character
+  };
+  const skillPrompt =
+    pluginModule?.skillPrompt
+      ? `${pluginModule.skillPrompt}\n\n${profileSkill.fixedDialogueOnlyRules().join("\n")}`
+      : buildProfileSkillPrompt(profile);
+  // 两步记忆参考的第二步：主进程已把模型提炼出的记忆上下文放在 state.memoryContext。
+  const memoryContext = String(state.memoryContext || "").trim();
 
   return [
     "<system_instructions>",
     skillPrompt,
     "",
     runtimeStatePrompt(state),
+    ...(memoryContext
+      ? [
+          "",
+          "<recent_memory_context>",
+          memoryContext,
+          "</recent_memory_context>"
+        ]
+      : []),
     "",
     "<long_term_memory>",
     JSON.stringify(memories),
@@ -606,6 +551,53 @@ async function chatLocalStream(state, messages, onDelta) {
   }
 }
 
+// 通用 API 补全：不带角色系统提示词，用于记忆总结与压缩这类后台调用。
+async function completeChatApi(state, messages, options = {}) {
+  const config = state.settings?.services?.llm || {};
+  const baseUrl = normalizeBaseUrl(config.baseUrl);
+  if (!baseUrl || !config.model) {
+    return { ok: false, error: "没有配置对话 API 服务。" };
+  }
+  const payload = {
+    model: config.model,
+    temperature: 0.3,
+    max_tokens: options.maxTokens ?? 256,
+    ...(baseUrl.includes("nvidia.com")
+      ? {
+          chat_template_kwargs: {
+            enable_thinking: false,
+            thinking: false
+          }
+        }
+      : {}),
+    messages: (messages || []).map((message) => ({
+      role: message.role,
+      content: String(message.content || "")
+    }))
+  };
+  try {
+    const response = await fetchWithTimeout(
+      endpoint(baseUrl, "/chat/completions"),
+      {
+        method: "POST",
+        headers: headers(config.apiKey),
+        body: JSON.stringify(payload)
+      },
+      120000
+    );
+    const raw = await response.text();
+    if (!response.ok) {
+      throw new Error(`本地模型返回 ${response.status}: ${raw.slice(0, 180)}`);
+    }
+    const data = raw ? JSON.parse(raw) : {};
+    const text = data?.choices?.[0]?.message?.content;
+    if (!text) throw new Error("本地模型没有返回文本内容。");
+    return { ok: true, text: String(text).trim() };
+  } catch (error) {
+    return { ok: false, error: error.message || "对话 API 请求失败。" };
+  }
+}
+
 function guessMime(filePath) {
   const extension = path.extname(filePath).toLowerCase();
   const map = {
@@ -836,6 +828,7 @@ module.exports = {
   buildSystemPrompt,
   chatLocal,
   chatLocalStream,
+  completeChatApi,
   fallbackReply,
   parseModelPayload,
   sanitizeCharacterReply,
