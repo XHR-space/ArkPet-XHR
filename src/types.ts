@@ -398,7 +398,7 @@ export type ServiceConfig = {
   voiceId?: string;
 };
 
-export type ThemeName = "default" | "violet" | "azure" | "jade";
+export type ThemeName = "violet" | "azure" | "jade";
 
 export type CustomDialogModule = {
   id: string;

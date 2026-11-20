@@ -13,8 +13,41 @@ function id(prefix) {
   return `${prefix}_${crypto.randomUUID()}`;
 }
 
+function createBlankTrainingProfile(petId) {
+  const now = new Date().toISOString();
+  return {
+    id: id("training"),
+    name: "新角色档案",
+    petId,
+    status: "ready",
+    localModelId: "",
+    character: {
+      name: "",
+      role: "",
+      personality: "",
+      speakingStyle: "",
+      worldview: "",
+      likes: "",
+      dislikes: "",
+      boundaries: "",
+      initiative: 58,
+      temperature: 0.82,
+      relationship: 12,
+      mood: "平静",
+      energy: 76
+    },
+    documents: [],
+    memories: [],
+    voiceProfileIds: [],
+    aiModuleIds: [],
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
 function createDefaultState() {
   const petId = id("pet");
+  const blankTrainingProfile = createBlankTrainingProfile(petId);
 
   return {
     version: 16,
@@ -177,8 +210,8 @@ function createDefaultState() {
       }
     ],
     aiModules: [],
-    trainingProfiles: [],
-    activeTrainingProfileId: "",
+    trainingProfiles: [blankTrainingProfile],
+    activeTrainingProfileId: blankTrainingProfile.id,
     auxiliaryWindows: [
       {
         id: id("aux"),
@@ -201,7 +234,7 @@ function createDefaultState() {
     ],
     settings: {
       appearance: {
-        theme: "default"
+        theme: "azure"
       },
       overlay: {
         visibleOnStart: true,
@@ -397,7 +430,7 @@ function ensureShape(raw) {
   }
   if (Number(merged.version || 1) < 12) {
     merged.settings.appearance = {
-      theme: "default",
+      theme: "azure",
       ...(isObject(merged.settings.appearance)
         ? merged.settings.appearance
         : {})
@@ -457,6 +490,13 @@ function ensureShape(raw) {
   if (Number(merged.version || 1) < 16) {
     // 版本 16：状态按桌宠独立存储（pet.vitals），模块自己的数值存进 pet.moduleState。
     merged.version = 16;
+  }
+  if (Number(merged.version || 1) < 17) {
+    // 版本 17：移除「默认工房」皮肤，旧的 default 主题迁移到霜蓝 azure。
+    if (merged.settings.appearance?.theme === "default") {
+      merged.settings.appearance.theme = "azure";
+    }
+    merged.version = 17;
   }
   for (const pet of Array.isArray(merged.pets) ? merged.pets : []) {
     if (!isObject(pet.renderConfig)) continue;
@@ -873,8 +913,14 @@ function ensureShape(raw) {
         };
   }
   if (merged.trainingProfiles.length === 0) {
-    merged.activeTrainingProfileId = "";
+    // 档案列表不允许为空：删光后自动补一个空白档案
+    const blankTrainingProfile = createBlankTrainingProfile(
+      merged.activePetId
+    );
+    merged.trainingProfiles = [blankTrainingProfile];
+    merged.activeTrainingProfileId = blankTrainingProfile.id;
   } else if (
+    merged.activeTrainingProfileId &&
     !merged.trainingProfiles.some(
       (profile) => profile.id === merged.activeTrainingProfileId
     )
@@ -1129,6 +1175,7 @@ module.exports = {
   Store,
   STATE_FILE,
   createDefaultState,
+  createBlankTrainingProfile,
   ensureShape,
   id,
   mergeDeep

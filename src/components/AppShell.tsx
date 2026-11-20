@@ -49,7 +49,7 @@ export function AppShell() {
 
   useEffect(() => {
     document.documentElement.dataset.theme =
-      state?.settings.appearance?.theme || "default";
+      state?.settings.appearance?.theme || "azure";
   }, [state?.settings.appearance?.theme]);
 
   useEffect(() => {

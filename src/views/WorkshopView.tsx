@@ -38,6 +38,7 @@ import {
   withRenderConfigDefaults
 } from "../lib/renderConfig";
 import { useAppState } from "../state";
+import { useConfirm } from "../components/ConfirmDialog";
 import type {
   BoneRoleMap,
   PetDesktopLayout,
@@ -147,6 +148,7 @@ const spineSlots: Array<{
 
 export function WorkshopView() {
   const { state, updateState, refresh } = useAppState();
+  const { confirm } = useConfirm();
   const [mode, setMode] = useState<WorkshopMode>("edit");
   const [draftId, setDraftId] = useState(() => makeId("spine-draft"));
   const [petNameError, setPetNameError] = useState("");
@@ -395,7 +397,12 @@ export function WorkshopView() {
 
   async function deletePet() {
     if (currentState.pets.length <= 1) return;
-    if (!window.confirm(`确定删除“${pet.name}”吗？素材仍会保留在数据目录中。`)) {
+    if (
+      !(await confirm(`确定删除“${pet.name}”吗？素材仍会保留在数据目录中。`, {
+        danger: true,
+        title: "删除角色"
+      }))
+    ) {
       return;
     }
     const pets = currentState.pets.filter((item) => item.id !== pet.id);
@@ -670,15 +677,17 @@ export function WorkshopView() {
 
   async function resolveUnsavedRenderConfig() {
     if (!layoutDirty) return true;
-    const shouldSave = window.confirm(
-      "高级设置有未保存的改动。\n\n点击“确定”保存并继续；点击“取消”后再选择是否放弃。"
+    const shouldSave = await confirm(
+      "高级设置有未保存的改动。\n\n点击“确定”保存并继续；点击“取消”后再选择是否放弃。",
+      { title: "保存高级设置" }
     );
     if (shouldSave) {
       await commitRenderConfig();
       return true;
     }
-    const shouldDiscard = window.confirm(
-      "是否放弃本次高级设置改动？\n\n点击“确定”放弃；点击“取消”留在当前角色继续编辑。"
+    const shouldDiscard = await confirm(
+      "是否放弃本次高级设置改动？\n\n点击“确定”放弃；点击“取消”留在当前角色继续编辑。",
+      { danger: true, title: "放弃改动" }
     );
     if (!shouldDiscard) return false;
     draftOwnerPetIdRef.current = pet.id;
@@ -1091,13 +1100,6 @@ export function WorkshopView() {
               <button
                 className="toolbar-delete"
                 type="button"
-                style={{
-                  color: "#fff",
-                  background: "#d75d5d",
-                  borderColor: "#d75d5d",
-                  opacity: 1,
-                  visibility: "visible"
-                }}
                 onClick={deletePet}
                 disabled={state.pets.length <= 1}
               >
@@ -1107,13 +1109,6 @@ export function WorkshopView() {
               <button
                 className="primary-small"
                 type="button"
-                style={{
-                  color: "#fff",
-                  background: "#2f7df6",
-                  borderColor: "#2f7df6",
-                  opacity: 1,
-                  visibility: "visible"
-                }}
                 onClick={() =>
                   layoutDirty ? commitRenderConfig() : savePet(pet)
                 }
@@ -1124,13 +1119,6 @@ export function WorkshopView() {
               <button
                 className="advanced-settings-button"
                 type="button"
-                style={{
-                  color: "#fff",
-                  background: "#2b9a67",
-                  borderColor: "#2b9a67",
-                  opacity: 1,
-                  visibility: "visible"
-                }}
                 onClick={toggleAdvancedSettings}
                 aria-pressed={showAdvanced}
               >

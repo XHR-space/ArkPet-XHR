@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAppState } from "../state";
+import { useConfirm } from "../components/ConfirmDialog";
 import type {
   ServiceConfig,
   ThemeName,
@@ -29,12 +30,6 @@ const themeOptions: Array<{
   description: string;
   colors: string[];
 }> = [
-  {
-    id: "default",
-    name: "默认工房",
-    description: "当前版本的暖白与蓝色工作台。",
-    colors: ["#f4f2ec", "#18243a", "#2f7df6", "#f59f38"]
-  },
   {
     id: "violet",
     name: "紫苑",
@@ -68,6 +63,7 @@ const sections: Array<{
 
 export function SettingsView() {
   const { state, updateState } = useAppState();
+  const { confirm } = useConfirm();
   const [activeSection, setActiveSection] = useState<SettingsSection>("theme");
   const [serviceResults, setServiceResults] = useState<Record<string, string>>({});
   const [paths, setPaths] = useState<{
@@ -142,7 +138,14 @@ export function SettingsView() {
   }
 
   async function importBackup() {
-    if (!window.confirm("导入备份会替换当前状态，确定继续吗？")) return;
+    if (
+      !(await confirm("导入备份会替换当前状态，确定继续吗？", {
+        danger: true,
+        title: "导入备份"
+      }))
+    ) {
+      return;
+    }
     setBackupBusy(true);
     try {
       const result = await window.deskPet.importBackup();
@@ -156,9 +159,10 @@ export function SettingsView() {
 
   async function changeDataLocation() {
     if (
-      !window.confirm(
-        "会把全部用户数据移动到新位置（旧目录改名为带时间的备份目录），重启软件后使用新位置。继续吗？"
-      )
+      !(await confirm(
+        "会把全部用户数据移动到新位置（旧目录改名为带时间的备份目录），重启软件后使用新位置。继续吗？",
+        { danger: true, title: "更改数据位置" }
+      ))
     ) {
       return;
     }
@@ -216,7 +220,7 @@ export function SettingsView() {
             <div className="theme-grid">
               {themeOptions.map((theme) => {
                 const selected =
-                  (state.settings.appearance?.theme || "default") === theme.id;
+                  (state.settings.appearance?.theme || "azure") === theme.id;
                 return (
                   <button
                     className={
@@ -501,8 +505,15 @@ export function SettingsView() {
               <button
                 className="danger-button"
                 type="button"
-                onClick={() => {
-                  if (window.confirm("确定退出 ArkPet 吗？")) window.deskPet.quit();
+                onClick={async () => {
+                  if (
+                    await confirm("确定退出 ArkPet 吗？", {
+                      danger: true,
+                      title: "退出 ArkPet"
+                    })
+                  ) {
+                    window.deskPet.quit();
+                  }
                 }}
               >
                 <Power size={16} />

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useAppState } from "../state";
+import { useConfirm } from "../components/ConfirmDialog";
 import type { CustomDialogModule, RegistryModule } from "../types";
 
 const MODULE_MANIFEST_TEMPLATE = `{
@@ -140,6 +141,7 @@ const MODULE_HTML_SAMPLE = `<!doctype html>
 
 export function ModuleManagerView() {
   const { state, updateState, refresh } = useAppState();
+  const { confirm } = useConfirm();
   const [settingsId, setSettingsId] = useState("");
   const [registryOpen, setRegistryOpen] = useState(false);
   const [registryLoading, setRegistryLoading] = useState(false);
@@ -1220,8 +1222,15 @@ export function ModuleManagerView() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                if (!window.confirm(`删除模组“${settingsModule.name}”？`)) return;
+              onClick={async () => {
+                if (
+                  !(await confirm(`删除模组“${settingsModule.name}”？`, {
+                    danger: true,
+                    title: "删除模组"
+                  }))
+                ) {
+                  return;
+                }
                 void updateState({
                   customModules: currentState.customModules.filter(
                     (module) => module.id !== settingsModule.id

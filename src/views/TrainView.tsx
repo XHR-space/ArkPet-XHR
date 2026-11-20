@@ -28,12 +28,14 @@ import {
 } from "../lib/wellbeing";
 import { ensurePetVitals } from "../lib/petVitals";
 import { useAppState } from "../state";
+import { useConfirm } from "../components/ConfirmDialog";
 import type {
   AppSettings,
   CharacterProfile,
   ChatMessage,
   TrainingDocument,
-  TrainingProfile
+  TrainingProfile,
+  VoiceProfile
 } from "../types";
 import {
   buildFinalSkillText,
@@ -83,6 +85,7 @@ function formatMemoryLogText(
 
 export function TrainingView() {
   const { state, updateState } = useAppState();
+  const { confirm } = useConfirm();
   const [activeTab, setActiveTab] = useState<TrainingTab>("profile");
   const [documentTitle, setDocumentTitle] = useState("");
   const [documentText, setDocumentText] = useState("");
@@ -114,8 +117,7 @@ export function TrainingView() {
   const activeProfile =
     trainingProfiles.find(
       (profile) => profile.id === currentState.activeTrainingProfileId
-    ) ||
-    trainingProfiles[0];
+    ) || null;
   const selectedVoiceProfile =
     currentState.voiceProfiles.find(
       (profile) => profile.id === selectedVoiceProfileId
@@ -270,8 +272,9 @@ export function TrainingView() {
   // 手动压缩：全部原文日志并进摘要，recent 清空。
   async function compressMemoryLog() {
     if (!activeProfile || memoryBusy) return;
-    const confirmed = window.confirm(
-      "确定把全部原文日志压缩进摘要吗？压缩后原文列表会清空，内容并入摘要保存。"
+    const confirmed = await confirm(
+      "确定把全部原文日志压缩进摘要吗？压缩后原文列表会清空，内容并入摘要保存。",
+      { title: "压缩记忆日志" }
     );
     if (!confirmed) return;
     setMemoryBusy(true);
@@ -287,8 +290,9 @@ export function TrainingView() {
 
   async function clearMemoryLog() {
     if (!activeProfile) return;
-    const confirmed = window.confirm(
-      "确定清空这个档案的全部记忆日志（包括摘要）吗？此操作不可恢复。"
+    const confirmed = await confirm(
+      "确定清空这个档案的全部记忆日志（包括摘要）吗？此操作不可恢复。",
+      { danger: true, title: "清空记忆日志" }
     );
     if (!confirmed) return;
     await window.deskPet.clearMemoryLog(activeProfile.id);
@@ -455,7 +459,12 @@ export function TrainingView() {
 
   async function deleteVoiceModule() {
     if (!selectedVoiceProfile) return;
-    if (!window.confirm(`确定删除声音模块“${selectedVoiceProfile.name}”吗？`)) {
+    if (
+      !(await confirm(`确定删除声音模块“${selectedVoiceProfile.name}”吗？`, {
+        danger: true,
+        title: "删除声音模块"
+      }))
+    ) {
       return;
     }
     await updateState({
@@ -470,6 +479,39 @@ export function TrainingView() {
       }))
     });
     setSelectedVoiceProfileId("");
+  }
+
+  async function createBlankVoiceModule() {
+    const now = new Date().toISOString();
+    // 命名计数规则与角色档案一致：不重名不加数字、重名从 2 开始、删了补空位
+    const name = makeUniqueName(
+      "声音模块",
+      currentState.voiceProfiles.map((profile) => profile.name)
+    );
+    const nextVoice: VoiceProfile = {
+      id: makeId("voice"),
+      name,
+      status: "ready",
+      samples: [],
+      activeSampleId: "",
+      defaultAiModuleId: "",
+      voiceId: "",
+      engineType: "gpt-sovits",
+      baseUrl: "http://127.0.0.1:9880",
+      model: "",
+      apiKey: "",
+      localModelPath: "",
+      referenceText: "",
+      trainingClips: [],
+      trainingName: `${name} 声线`,
+      createdAt: now
+    };
+    // 与角色档案一致：不弹编辑窗，直接生成空白模块并选中
+    await updateState({
+      voiceProfiles: [nextVoice, ...currentState.voiceProfiles]
+    });
+    setSelectedVoiceProfileId(nextVoice.id);
+    setActiveTab("voice");
   }
 
   async function updateVoiceProfile(
@@ -530,27 +572,46 @@ export function TrainingView() {
     setMemoryText("");
   }
 
-  async function selectTrainingProfile(profile: TrainingProfile) {
+  async function selectTrainingProfile(
+    profile: TrainingProfile,
+    options: { navigate?: boolean } = {}
+  ) {
+    // 点击即选中，不再支持再次点击取消选中
     await updateState({
       activeTrainingProfileId: profile.id,
       character: profile.character,
       documents: profile.documents,
       memories: profile.memories
     });
-    setActiveTab("profile");
+    setSelectedVoiceProfileId("");
+    if (options.navigate !== false) setActiveTab("profile");
   }
 
-  async function createTrainingProfile() {
+  function buildBlankTrainingProfile(
+    existingNames: string[] = trainingProfiles.map((profile) => profile.name)
+  ): TrainingProfile {
     const now = new Date().toISOString();
-    const nextProfile: TrainingProfile = {
+    return {
       id: makeId("training"),
-      name: "新角色档案",
+      name: makeUniqueName("新角色档案", existingNames),
       petId: currentState.activePetId,
-      status: "draft",
+      status: "ready",
       localModelId: "",
+      // 新建档案必须空白，不复制当前角色内容
       character: {
-        ...currentState.character,
-        name: "新角色"
+        name: "",
+        role: "",
+        personality: "",
+        speakingStyle: "",
+        worldview: "",
+        likes: "",
+        dislikes: "",
+        boundaries: "",
+        initiative: 58,
+        temperature: 0.82,
+        relationship: 12,
+        mood: "平静",
+        energy: 76
       },
       documents: [],
       memories: [],
@@ -559,12 +620,13 @@ export function TrainingView() {
       createdAt: now,
       updatedAt: now
     };
+  }
+
+  async function createTrainingProfile() {
+    const nextProfile = buildBlankTrainingProfile();
     await updateState({
       trainingProfiles: [nextProfile, ...trainingProfiles],
-      activeTrainingProfileId: nextProfile.id,
-      character: nextProfile.character,
-      documents: [],
-      memories: []
+      activeTrainingProfileId: nextProfile.id
     });
     setActiveTab("profile");
   }
@@ -600,17 +662,39 @@ export function TrainingView() {
 
   async function deleteTrainingProfile() {
     if (!activeProfile) return;
-    if (!window.confirm(`确定删除“${activeProfile.name}”吗？`)) return;
     const remaining = trainingProfiles.filter(
       (profile) => profile.id !== activeProfile.id
     );
-    const nextActive = remaining[0] || null;
+    const confirmMessage =
+      remaining.length === 0
+        ? `确定删除“${activeProfile.name}”吗？删除后会自动创建一个新的空白档案。`
+        : `确定删除“${activeProfile.name}”吗？`;
+    if (
+      !(await confirm(confirmMessage, { danger: true, title: "删除角色档案" }))
+    ) {
+      return;
+    }
+    if (remaining.length === 0) {
+      // 全部删光时自动生成一个新的空白档案，档案列表永远不为空
+      const blankProfile = buildBlankTrainingProfile([]);
+      await updateState({
+        trainingProfiles: [blankProfile],
+        activeTrainingProfileId: blankProfile.id,
+        character: blankProfile.character,
+        documents: [],
+        memories: []
+      });
+      setActiveTab("profile");
+      setProfileEditorOpen(false);
+      return;
+    }
+    const nextActive = remaining[0];
     await updateState({
       trainingProfiles: remaining,
-      activeTrainingProfileId: nextActive?.id || "",
-      character: nextActive?.character || currentState.character,
-      documents: nextActive?.documents || [],
-      memories: nextActive?.memories || []
+      activeTrainingProfileId: nextActive.id,
+      character: nextActive.character,
+      documents: nextActive.documents,
+      memories: nextActive.memories
     });
     setActiveTab("profile");
   }
@@ -777,7 +861,7 @@ export function TrainingView() {
               .map((profile) => (
               <button
                 className={
-                  profile.id === activeProfile?.id
+                  profile.id === activeProfile?.id && !selectedVoiceProfileId
                     ? "pet-list-item pet-list-item--active"
                     : "pet-list-item"
                 }
@@ -816,6 +900,14 @@ export function TrainingView() {
               .length === 0 && (
                 <p className="empty-copy">还没有保存到库的角色档案。</p>
             )}
+            <button
+              className="library-create-profile-button"
+              type="button"
+              onClick={() => void createTrainingProfile()}
+            >
+              <Plus size={16} />
+              创建角色档案
+            </button>
             <div className="module-library-section-title">声音模块</div>
             {currentState.voiceProfiles.map((profile) => (
               <button
@@ -849,6 +941,14 @@ export function TrainingView() {
             {currentState.voiceProfiles.length === 0 && (
               <p className="empty-copy">还没有声音模块。</p>
             )}
+            <button
+              className="library-create-profile-button"
+              type="button"
+              onClick={() => void createBlankVoiceModule()}
+            >
+              <Plus size={16} />
+              新建声音模块
+            </button>
           </div>
         </aside>
 
@@ -977,7 +1077,6 @@ export function TrainingView() {
                   <button
                     className="profile-archive-delete"
                     type="button"
-                    disabled={trainingProfiles.length <= 1}
                     onClick={() => void deleteTrainingProfile()}
                   >
                     <Trash2 size={16} />
@@ -1148,10 +1247,9 @@ export function TrainingView() {
                       );
                       if (!profile) return;
                       setMessages([]);
-                      void selectTrainingProfile(profile);
+                      void selectTrainingProfile(profile, { navigate: false });
                     }}
                   >
-                      <option value="">请选择角色档案</option>
                     {trainingProfiles
                       .filter((profile) => profile.status !== "draft")
                       .map((profile) => (
@@ -1606,30 +1704,28 @@ export function TrainingView() {
                   两者会按“角色 Skill 优先，状态只调整语气”的顺序一起送入模型。
                 </p>
                 <label className="module-skill-preview">
-                    <span>角色 Skill（最终版：档案生成 + 手写覆盖 + 保留区块）</span>
+                    <span>
+                      {skillEditorOpen
+                        ? `直接编辑 Skill：保存后只覆盖改动的字段；改动档案后以档案为准。用 <custom_block name="区块名">…</custom_block> 声明的区块会被永久保留。`
+                        : "角色 Skill（最终版：档案生成 + 手写覆盖 + 保留区块）"}
+                    </span>
                   <textarea
-                    readOnly
-                    value={activeSkillPrompt}
-                    rows={8}
+                    readOnly={!skillEditorOpen}
+                    value={skillEditorOpen ? skillDraft : activeProfile ? activeSkillPrompt : ""}
+                    rows={skillEditorOpen ? 16 : 8}
+                    spellCheck={false}
+                    onChange={
+                      skillEditorOpen
+                        ? (event) => {
+                            setSkillDraft(event.target.value);
+                            if (skillError) setSkillError("");
+                          }
+                        : undefined
+                    }
                   />
                 </label>
                 {skillEditorOpen && (
-                  <div className="skill-editor">
-                    <label className="module-skill-preview">
-                      <span>
-                        直接编辑 Skill：保存后只覆盖改动的字段；改动档案后以档案为准。
-                        用 &lt;custom_block name="区块名"&gt;…&lt;/custom_block&gt; 声明的区块会被永久保留。
-                      </span>
-                      <textarea
-                        value={skillDraft}
-                        rows={16}
-                        spellCheck={false}
-                        onChange={(event) => {
-                          setSkillDraft(event.target.value);
-                          if (skillError) setSkillError("");
-                        }}
-                      />
-                    </label>
+                  <>
                     {skillError && <span className="skill-editor-error">{skillError}</span>}
                     <div className="skill-editor-actions">
                       <button type="button" onClick={() => void saveSkillEdits()}>
@@ -1639,13 +1735,13 @@ export function TrainingView() {
                         取消
                       </button>
                     </div>
-                  </div>
+                  </>
                 )}
                   <label className="module-skill-preview">
                     <span>运行时 Prompt（自动生成，不保存）</span>
                     <textarea
                       readOnly
-                      value={runtimePromptPreview}
+                      value={activeProfile ? runtimePromptPreview : ""}
                       rows={6}
                     />
                   </label>
@@ -1936,6 +2032,7 @@ export function TrainingView() {
                     <button
                       type="button"
                       onClick={() =>
+                        activeProfile &&
                         window.deskPet.openTrainingFolder(activeProfile.id)
                       }
                     >
@@ -2009,41 +2106,6 @@ export function TrainingView() {
                     </button>
                   )}
                 </div>
-                <button
-                  className="library-save-button"
-                  type="button"
-                  onClick={async () => {
-                    const now = new Date().toISOString();
-                    const baseName = "新角色档案";
-                    const others = trainingProfiles.map((p) => p.name);
-                    const uniqueName = makeUniqueName(baseName, others);
-                    const nextProfile: TrainingProfile = {
-                      id: makeId("training"),
-                      name: uniqueName,
-                      petId: currentState.activePetId,
-                      status: "draft",
-                      localModelId: "",
-                      character: { ...currentState.character, name: "新角色" },
-                      documents: [],
-                      memories: [],
-                      voiceProfileIds: [],
-                      aiModuleIds: [],
-                      createdAt: now,
-                      updatedAt: now
-                    };
-                    await updateState({
-                      trainingProfiles: [nextProfile, ...trainingProfiles],
-                      activeTrainingProfileId: nextProfile.id,
-                      character: nextProfile.character,
-                      documents: [],
-                      memories: []
-                    });
-                    setProfileEditorOpen(true);
-                  }}
-                >
-                  <Plus size={16} />
-                  创建角色档案
-                </button>
               </div>
             </div>
           )}

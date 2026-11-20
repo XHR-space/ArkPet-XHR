@@ -17,6 +17,19 @@ function num(value, fallback = 0) {
 /** 目标位置停止变化后多久落库（毫秒）。不要每帧写盘。 */
 const PLACEMENT_SETTLE_MS = 400;
 
+/** 拖动期间对等窗口位置广播的最小间隔（毫秒）。逐事件广播会让所有窗口与主进程积压。 */
+const PEER_BROADCAST_INTERVAL_MS = 25;
+
+/**
+ * 拖动期间任务栏区域刷新的最小间隔（毫秒）。
+ * 每次移动都向 PowerShell 助手发起 SetWindowRgn 往返是拖动手感卡顿（阻尼感）的主因：
+ * 助手按行串行处理，移动指令会被区域往返挤占，窗口跟不上鼠标。
+ */
+const REGION_REFRESH_INTERVAL_MS = 150;
+
+/** 目标停止更新后，补做最终广播与区域刷新的等待时间（毫秒）。 */
+const TARGET_SETTLE_MS = 120;
+
 function normalizeScale(value) {
   const scale = Number(value);
   return Number.isFinite(scale) && scale > 0 ? scale : 1;
@@ -1071,15 +1084,40 @@ class PetWindowRuntime {
       return { ok: true, queued: true, coalesced: true };
     }
 
+    if (entry.targetSettleTimer) {
+      clearTimeout(entry.targetSettleTimer);
+      entry.targetSettleTimer = null;
+    }
+
     entry.targetTask = (async () => {
       while (entry.pendingTarget && !entry.destroyed && !this.disposed) {
         const target = entry.pendingTarget;
         entry.pendingTarget = null;
         if (!entry.hwnd || !this.nativeWindow.isSupported()) continue;
+        // 高频鼠标事件常重复给出同一像素目标，跳过可省掉大量无意义移动与广播
+        const lastSent = entry.lastSentTarget;
+        if (lastSent && lastSent.x === target.x && lastSent.y === target.y) {
+          continue;
+        }
+        entry.lastSentTarget = { x: target.x, y: target.y };
         await this.nativeWindow.move(entry.hwnd, target.x, target.y);
+        const now = Date.now();
+        if (now - (this.lastPeerBroadcastAt || 0) >= PEER_BROADCAST_INTERVAL_MS) {
+          this.lastPeerBroadcastAt = now;
+          this._broadcastPeers();
+        }
+        if (now - (entry.lastRegionRefreshAt || 0) >= REGION_REFRESH_INTERVAL_MS) {
+          entry.lastRegionRefreshAt = now;
+          void this._refreshRegion(entry);
+        }
+      }
+      // 拖动停止后补一次最终广播与区域刷新，保证落点状态准确
+      entry.targetSettleTimer = setTimeout(() => {
+        entry.targetSettleTimer = null;
+        if (entry.destroyed || this.disposed) return;
         this._broadcastPeers();
         void this._refreshRegion(entry);
-      }
+      }, TARGET_SETTLE_MS);
     })()
       .catch((error) => {
         this.logger.warn?.(
@@ -1171,6 +1209,10 @@ class PetWindowRuntime {
     this.windows.delete(entry.petId);
     entry.destroyed = true;
     entry.pendingTarget = null;
+    if (entry.targetSettleTimer) {
+      clearTimeout(entry.targetSettleTimer);
+      entry.targetSettleTimer = null;
+    }
     if (entry.window && !entry.window.isDestroyed()) entry.window.destroy();
   }
 

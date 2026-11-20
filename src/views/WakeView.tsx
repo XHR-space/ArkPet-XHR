@@ -2,7 +2,6 @@ import {
   ChevronLeft,
   ChevronRight,
   DoorOpen,
-  PanelsTopLeft,
   Play,
   Plus,
   RotateCcw,
@@ -563,33 +562,48 @@ export function WakeView({ petMode }: { petMode: PetMode }) {
           </p>
         </div>
         <div className="per-pet-window-panel">
-          <div>
-            <span className="section-kicker">窗口模式</span>
-            <strong>每角色独立窗口</strong>
-            <p>
-              {state.settings.overlay.perPetWindows === true
-                ? "已开启：每只角色使用独立窗口，物理跑在碰撞体积上，可以先后被普通窗口遮挡。"
-                : "当前使用旧的全屏叠层；开启后每只角色改用独立窗口，关闭即恢复旧行为。"}
-            </p>
+          <div className="per-pet-window-head">
+            <div>
+              <span className="section-kicker">窗口模式</span>
+              <strong>每角色独立窗口</strong>
+            </div>
+            <button
+              className={
+                state.settings.overlay.perPetWindows === true
+                  ? "per-pet-switch per-pet-switch--on"
+                  : "per-pet-switch"
+              }
+              type="button"
+              role="switch"
+              aria-checked={state.settings.overlay.perPetWindows === true}
+              title={
+                state.settings.overlay.perPetWindows === true
+                  ? "关闭独立窗口"
+                  : "开启独立窗口"
+              }
+              onClick={() =>
+                saveOverlay({
+                  perPetWindows: state.settings.overlay.perPetWindows !== true
+                })
+              }
+            >
+              <span />
+            </button>
           </div>
-          <button
+          <p className="per-pet-window-desc">
+            每只角色使用独立窗口，物理跑在碰撞体积上，可以先后被普通窗口遮挡。
+          </p>
+          <div
             className={
               state.settings.overlay.perPetWindows === true
-                ? "per-pet-window-button per-pet-window-button--active"
-                : "per-pet-window-button"
-            }
-            type="button"
-            onClick={() =>
-              saveOverlay({
-                perPetWindows: state.settings.overlay.perPetWindows !== true
-              })
+                ? "per-pet-window-status per-pet-window-status--on"
+                : "per-pet-window-status"
             }
           >
-            <PanelsTopLeft size={15} />
             {state.settings.overlay.perPetWindows === true
-              ? "关闭独立窗口"
-              : "开启独立窗口"}
-          </button>
+              ? "已开启：每只角色拥有独立窗口"
+              : "未开启：当前使用旧的全屏叠层"}
+          </div>
         </div>
         <div
           className={

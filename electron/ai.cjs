@@ -45,6 +45,32 @@ function buildProfileSkillPrompt(profile) {
   return profileSkill.buildFinalSkillText(profile);
 }
 
+// 从 speech_json={...} 中提取平衡括号包裹的 JSON（模型可能输出畸形 JSON，尽力提取）
+function extractSpeechJson(raw) {
+  const s = String(raw || "").trim().replace(/^speech_json\s*=\s*/, "");
+  const start = s.indexOf("{");
+  if (start < 0) return "";
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return "";
+}
+
 function parseModelPayload(rawText) {
   const text = String(rawText || "").trim();
   if (!text) return { text: "", action: "", speech: null };
@@ -52,12 +78,28 @@ function parseModelPayload(rawText) {
   if (speechMarkerIndex >= 0) {
     const visibleText = text.slice(0, speechMarkerIndex).trim();
     const speechText = text.slice(speechMarkerIndex + "[[SPEECH]]".length).trim();
+    const speechJson = extractSpeechJson(speechText);
     try {
-      const speech = JSON.parse(speechText);
+      const speech = JSON.parse(speechJson || speechText);
       return { text: visibleText, action: "", speech };
     } catch {
       return { text: visibleText, action: "", speech: null };
     }
+  }
+  // 模型可能不带 [[SPEECH]] 标记直接输出 speech_json={...}：把标记及之后全部从可见文本中剥离
+  const speechJsonAt = text.search(/speech_json\s*=/i);
+  if (speechJsonAt >= 0) {
+    const visibleText = text.slice(0, speechJsonAt).trim();
+    const speechJson = extractSpeechJson(text.slice(speechJsonAt));
+    let speech = null;
+    if (speechJson) {
+      try {
+        speech = JSON.parse(speechJson);
+      } catch {
+        // 畸形 JSON：语音计划放弃，但文本已剥离
+      }
+    }
+    return { text: visibleText, action: "", speech };
   }
   const candidates = [text];
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -82,6 +124,10 @@ function parseModelPayload(rawText) {
 function sanitizeCharacterReply(rawText) {
   let text = String(rawText || "").trim();
   if (!text) return "";
+  // 兜底剥离语音元数据（[[SPEECH]] / speech_json=），任何残留都不进入可见文本
+  text = text.split(/\[\[SPEECH\]\]/i)[0];
+  const speechJsonAt = text.search(/speech_json\s*=/i);
+  if (speechJsonAt >= 0) text = text.slice(0, speechJsonAt).trim();
   text = text.replace(/```[\s\S]*?```/g, (block) =>
     block.replace(/```(?:json)?/gi, "").trim()
   );
@@ -508,10 +554,16 @@ async function chatLocalStream(state, messages, onDelta) {
             }
             if (!streamingJson) {
               const markerIndex = fullText.indexOf(speechMarker);
-              const visibleEnd =
-                markerIndex >= 0
-                  ? markerIndex
-                  : Math.max(0, fullText.length - speechMarker.length);
+              const speechJsonIndex = fullText.search(/speech_json\s*=/i);
+              let visibleEnd;
+              if (markerIndex >= 0 || speechJsonIndex >= 0) {
+                visibleEnd = Math.min(
+                  markerIndex >= 0 ? markerIndex : Number.MAX_SAFE_INTEGER,
+                  speechJsonIndex >= 0 ? speechJsonIndex : Number.MAX_SAFE_INTEGER
+                );
+              } else {
+                visibleEnd = Math.max(0, fullText.length - speechMarker.length);
+              }
               if (visibleEnd > emittedLength) {
                 onDelta?.(fullText.slice(emittedLength, visibleEnd));
                 emittedLength = visibleEnd;

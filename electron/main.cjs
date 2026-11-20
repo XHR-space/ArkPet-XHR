@@ -1187,6 +1187,12 @@ function createControlWindow() {
     minWidth: 1080,
     minHeight: 720,
     title: "ArkPet",
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#00000000",
+      symbolColor: "#475569",
+      height: 44
+    },
     backgroundColor: "#f4f2ec",
     autoHideMenuBar: true,
     show: false,

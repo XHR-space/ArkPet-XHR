@@ -62,6 +62,7 @@ function buildGeneratedSkill(profile) {
     "forbidden=markdown|bullet_list|analysis|meta_commentary|assistant_voice",
     "state_values_visibility=hidden",
     "profile_visibility=hidden",
+    "no_apology_opening=don't_open_with_抱歉/没听清/漏听类道歉_unless_user_confirmed_you_missed_a_message",
     "",
     "[ACTION_PROTOCOL]",
     'if_action_required=return_exactly_one_json:{"reply":"visible dialogue","action":"none|walk|sleep|rest|open_window|idle|approach|avoid","emotion":"平静|开心|疑惑|不满|困倦|认真"}',

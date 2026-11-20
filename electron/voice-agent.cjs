@@ -1,3 +1,22 @@
+// 朗读前剥离给 AI 看的语音元数据（[[SPEECH]] / speech_json / 旁白 / 动作描写），
+// 保证 TTS 只合成可见台词。
+function stripSpeechMetadata(input) {
+  let text = String(input || "");
+  text = text.split(/\[\[SPEECH\]\]/i)[0];
+  const speechJsonAt = text.search(/speech_json\s*=/i);
+  if (speechJsonAt >= 0) text = text.slice(0, speechJsonAt);
+  text = text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:旁白|Narrator)\s*[:：][^\n]*/i, "").trim())
+    .filter(Boolean)
+    .join("\n")
+    .replace(/[（(][^（）()]{0,80}[）)]/g, "")
+    .replace(/\[(?:pause|breath|tone|emotion|speed|pitch)[^\]]{0,40}\]/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text;
+}
+
 class VoiceAgent {
   constructor({ transcribe, reply, speak }) {
     this.transcribeProvider = transcribe;
@@ -14,7 +33,8 @@ class VoiceAgent {
   }
 
   async speak(text, options = {}) {
-    return this.speakProvider(text, options);
+    const cleanText = stripSpeechMetadata(text);
+    return this.speakProvider(cleanText, options);
   }
 
   async onUserAudio(audioBytes, options = {}) {

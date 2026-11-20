@@ -10,6 +10,7 @@ import {
 import { useEffect, useState } from "react";
 import { makeId } from "../lib/id";
 import { useAppState } from "../state";
+import { useConfirm } from "./ConfirmDialog";
 import type { PetAsset, VoiceProfile } from "../types";
 import { VoiceAgentPanel } from "./VoicePanel";
 
@@ -33,6 +34,7 @@ export function VoiceModuleView({
   onSelectVoiceProfile: (profileId: string) => void;
 }) {
   const { state, updateState } = useAppState();
+  const { confirm } = useConfirm();
   const [draft, setDraft] = useState<VoiceDraft | null>(null);
   const [audioSrc, setAudioSrc] = useState("");
   const [testText, setTestText] = useState("你好，我正在测试这个声音模块。");
@@ -105,20 +107,6 @@ export function VoiceModuleView({
     currentState.trainingProfiles.find(
       (profile) => profile.id === currentState.activeTrainingProfileId
     ) || currentState.trainingProfiles[0];
-
-  function createDraft() {
-    setDraft({
-      id: makeId("voice-draft"),
-      editingProfileId: "",
-      name: `声音模块 ${voiceProfiles.length + 1}`,
-      samples: [],
-      activeSampleId: "",
-      trainingClips: [],
-      trainingName: `声音模块 ${voiceProfiles.length + 1} 声线`,
-      defaultAiModuleId: "",
-      referenceText: ""
-    });
-  }
 
   function editDraft(profile: VoiceProfile) {
     setDraft({
@@ -390,7 +378,14 @@ export function VoiceModuleView({
   }
 
   async function deleteProfile(profile: VoiceProfile) {
-    if (!window.confirm(`确定删除声音模块“${profile.name}”吗？`)) return;
+    if (
+      !(await confirm(`确定删除声音模块“${profile.name}”吗？`, {
+        danger: true,
+        title: "删除声音模块"
+      }))
+    ) {
+      return;
+    }
     await updateState({
       voiceProfiles: voiceProfiles.filter((item) => item.id !== profile.id),
       trainingProfiles: currentState.trainingProfiles.map((item) => ({
@@ -413,6 +408,61 @@ export function VoiceModuleView({
         </p>
       </div>
 
+      <section
+        className={
+          selectedVoiceProfile
+            ? "voice-hero voice-hero--active"
+            : "voice-hero"
+        }
+      >
+        <div className="voice-hero-icon">
+          <AudioLines size={26} />
+        </div>
+        <div className="voice-hero-info">
+          <span className="voice-hero-kicker">当前选中的声音模块</span>
+          <strong>{selectedVoiceProfile?.name || "还没有声音模块"}</strong>
+          <div className="voice-hero-meta">
+            {selectedVoiceProfile ? (
+              <>
+                <span>{selectedVoiceProfile.samples.length} 个样本</span>
+                <span>本机 GPT-SoVITS</span>
+                <span>
+                  默认 AI：
+                  {currentState.trainingProfiles.find(
+                    (item) =>
+                      item.id === selectedVoiceProfile.defaultAiModuleId
+                  )?.name || "未设置"}
+                </span>
+                {selectedVoiceProfile.trainingName ? (
+                  <span>声线：{selectedVoiceProfile.trainingName}</span>
+                ) : null}
+              </>
+            ) : (
+              <span>请从左侧声音模块库新建声音模块</span>
+            )}
+          </div>
+        </div>
+        {selectedVoiceProfile && (
+          <div className="voice-hero-actions">
+            <button
+              type="button"
+              onClick={() => void editDraft(selectedVoiceProfile)}
+            >
+              <Pencil size={15} />
+              编辑
+            </button>
+            <button
+              type="button"
+              title="删除声音模块"
+              onClick={() => void deleteProfile(selectedVoiceProfile)}
+            >
+              <Trash2 size={15} />
+              删除
+            </button>
+          </div>
+        )}
+      </section>
+
       {hasVoicePlugin ? (
         <VoiceAgentPanel
           voiceProfileId={
@@ -428,25 +478,8 @@ export function VoiceModuleView({
         </section>
       )}
 
-      <section className="voice-workbench">
-        <div className="voice-workbench-header">
-          <div>
-            <strong>{draft ? draft.name : "声音模块编辑区"}</strong>
-            <span>
-              {draft
-                ? `${draft.samples.length} 个待保存样本`
-                : "选择已有模块编辑，或新建一个模块"}
-            </span>
-          </div>
-          {!draft && (
-            <button className="primary-small" type="button" onClick={createDraft}>
-              <Plus size={16} />
-              新建声音模块
-            </button>
-          )}
-        </div>
-
-        {draft && (
+      {draft && (
+        <section className="voice-workbench">
           <div className="voice-draft-editor">
             <label>
               <span>模块名称</span>
@@ -660,14 +693,12 @@ export function VoiceModuleView({
               </button>
             </div>
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
       <div className="voice-test-panel">
         <div>
-          <strong>
-            当前测试：{selectedVoiceProfile?.name || "未选择声音模块"}
-          </strong>
+          <strong>试听当前模块</strong>
           <span>
             {selectedVoiceProfile
               ? `${selectedVoiceProfile.samples.length} 个样本 · 本机 GPT-SoVITS`
@@ -691,41 +722,6 @@ export function VoiceModuleView({
           <Volume2 size={16} />
           {busy ? "正在合成..." : "播放试听"}
         </button>
-      </div>
-
-      <div className="voice-current-module">
-        <div>
-          <span>当前正在运行</span>
-          <strong>{selectedVoiceProfile?.name || "未选择声音模块"}</strong>
-          <small>
-            {selectedVoiceProfile
-              ? `${selectedVoiceProfile.samples.length} 个样本 · ${
-                  currentState.trainingProfiles.find(
-                    (item) =>
-                      item.id === selectedVoiceProfile.defaultAiModuleId
-                  )?.name || "未设置默认 AI 模块"
-                }`
-              : "请从左侧声音模块库中选择"}
-          </small>
-        </div>
-        {selectedVoiceProfile && (
-          <div className="voice-current-actions">
-            <button
-              type="button"
-              onClick={() => void editDraft(selectedVoiceProfile)}
-            >
-              <Pencil size={15} />
-              编辑
-            </button>
-            <button
-              type="button"
-              title="删除声音模块"
-              onClick={() => void deleteProfile(selectedVoiceProfile)}
-            >
-              <Trash2 size={15} />
-            </button>
-          </div>
-        )}
       </div>
 
       {audioSrc && (

@@ -711,10 +711,12 @@ export function MultiPetOverlay() {
     .map((petId) => appState.pets.find((pet) => pet.id === petId))
     .filter(Boolean) as PetProfile[];
   const dialogModule = resolveDialogModule(appState);
+  // 独立窗口模式下角色由各自的原生窗口绘制，overlay 只保留空壳，避免同一角色画两遍。
+  const perPetWindowsEnabled = overlaySettings.perPetWindows === true;
 
   return (
     <div className="overlay-root" style={{ pointerEvents: "none" }}>
-      {summonedPets.map((pet) => (
+      {!perPetWindowsEnabled && summonedPets.map((pet) => (
         <MultiPetEntity
           key={pet.id}
           pet={pet}

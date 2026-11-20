@@ -7,7 +7,7 @@
 - [中文完整使用说明](docs/User-Guide.zh-CN.md)
 - [English User Guide](docs/User-Guide.en-US.md)
 
-## ArkPet 2.3.0
+## ArkPet 2.4.0
 
 - 首页总览
 - 桌宠唤醒与桌面行为测试

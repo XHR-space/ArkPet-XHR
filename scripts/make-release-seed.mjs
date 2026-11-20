@@ -6,7 +6,7 @@ import process from "node:process";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { ensureShape } = require("../electron/store.cjs");
+const { ensureShape, createBlankTrainingProfile } = require("../electron/store.cjs");
 
 const root = process.cwd();
 const sourceDir = path.join(root, "data", "user-data");
@@ -114,7 +114,9 @@ function main() {
   keptProfile.aiModuleIds = [];
   keptProfile.voiceProfileIds = [keptVoice.id];
   keptProfile.localModelId = "";
-  state.trainingProfiles = [keptProfile];
+  // 发行版初始就带一个空白档案（放在黍档案后面，黍仍默认选中）
+  const blankProfile = createBlankTrainingProfile(state.pets[0].id);
+  state.trainingProfiles = [keptProfile, blankProfile];
   state.activeTrainingProfileId = keptProfile.id;
 
   state.voiceProfiles = [
