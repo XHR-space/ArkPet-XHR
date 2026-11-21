@@ -1234,7 +1234,6 @@ export function TrainingView() {
               <div className="section-heading">
                 <span className="section-kicker">对话测试</span>
                 <h2>检查角色是否保持自己的性格</h2>
-                <p>本地模型不可用时会使用内置角色回应，方便先测试页面和记忆结构。</p>
               </div>
               <div className="chat-module-selector">
                 <label>
@@ -1671,9 +1670,6 @@ export function TrainingView() {
               <div className="section-heading">
                 <span className="section-kicker">AI 模块</span>
                 <h2>把训练完成的行为模块挂到当前档案</h2>
-                <p>
-                  以后训练好的本地 AI 模块会出现在这里。挂到档案后，桌宠可以通过模组插件调用。
-                </p>
               </div>
               <div className="module-source-card">
                 <div className="module-source-head">
@@ -1750,11 +1746,6 @@ export function TrainingView() {
                 <div className="section-heading">
                   <span className="section-kicker">记忆日志</span>
                   <h2>这个档案记得的相处记录</h2>
-                  <p>
-                    对话与关键行为会自动记录在这里，角色每次开口前会先参考这些记忆。
-                    原文满 50 条会自动压缩：最旧的内容并进摘要、保留最近 20 条原文。
-                    每个档案的记忆相互独立。
-                  </p>
                 </div>
                 <label className="module-skill-preview">
                   <span>记忆摘要</span>
@@ -1852,9 +1843,6 @@ export function TrainingView() {
                   <div>
                     <span className="section-kicker">本地对话模型</span>
                     <strong>选择已经导入的 AI 模型</strong>
-                    <p>
-                      这里只读取“模型管理”中已经登记的模型，不会再次打开文件选择窗口。
-                    </p>
                   </div>
                   <button
                     type="button"

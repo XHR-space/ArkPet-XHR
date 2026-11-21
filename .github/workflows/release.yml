@@ -122,25 +122,23 @@ jobs:
             ArkPet ${{ steps.package.outputs.version }}
 
             【中文说明】
-            ArkPet 2.3.0 功能更新，Windows 与 macOS 安装包均已提供。
+            ArkPet 2.4.1 更新，Windows 与 macOS 安装包均已提供。
 
             主要变更：
-            - 每个角色拥有独立交互窗口，拖动、抛掷、弹跳、落地、点击穿透、角色互撞与位置落库全部重做，体验更顺滑
-            - 落定 v3 三框布局（角色、舞台、说话框），修复舞台不显示角色的问题，高级设置编辑器完整支持
-            - 新增角色档案记忆日志：对话与关键互动自动记录，角色每次开口前会先总结记忆再回复，满 50 条自动压缩
-            - 模组平台下发与记忆写入接口，模组可自行决定是否把对话写入角色记忆
-            - 数据安全页改版为卡片形式，新增“更改数据位置”，可手动把数据迁移到新目录，重启后生效
-            - 保持 2.2.x 数据兼容性；发行包不包含个人模型、API 密钥、声音样本或使用记录
+            - 更新应用图标，并修复 macOS 打包因图标尺寸过小导致失败的问题
+            - 精简界面：移除多处冗余说明文字，顶部标题栏采用紧凑双行布局
+            - 数据安全页改版，路径展示与操作项分区更清晰，操作项新增箭头提示
+            - 唤醒页面板重新归组，桌宠尺寸与桌宠相遇设置移入左侧栏
+            - 多项细节样式优化，跟随主题皮肤自动适配
 
             【English】
-            ArkPet 2.3.0 is a feature update. Windows and macOS installers are included.
+            ArkPet 2.4.1 is an update. Windows and macOS installers are included.
 
             Highlights:
-            - Each character now has its own interactive window; drag, throw, bounce, landing, click-through, collision between characters, and position persistence were all rebuilt
-            - Finalized the v3 three-frame layout (character, stage, speech); fixed characters not showing on stage; full support in the advanced settings editor
-            - New character-profile memory log: conversations and key interactions are recorded automatically, and characters summarize their memories before every reply; auto-compacts at 50 entries
-            - Module platform distribution and a memory API let modules decide whether to write conversations into character memory
-            - Redesigned the data-safety page as cards and added "Change data location" to migrate data manually; takes effect after restart
-            - Preserved 2.2.x data compatibility; release packages contain no personal models, API keys, voice samples, or usage history
+            - Updated the app icon and fixed the macOS build failing due to an undersized icon
+            - Streamlined the UI: removed redundant helper text and adopted a compact two-line header
+            - Redesigned the data-safety page with clearer grouping and arrow indicators on actions
+            - Reorganized the Wake page panels; character size and encounter settings moved to the left column
+            - Various style refinements that adapt to the active theme
           overwrite_files: true
           files: release-files/*

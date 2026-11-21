@@ -3,12 +3,23 @@ import {
   Database,
   HardDrive,
   Home,
-  Monitor,
   Puzzle,
   Power,
   Sparkles,
   Wand2
 } from "lucide-react";
+import callEmote from "../assets/emotes/call.png";
+import cooperateEmote from "../assets/emotes/cooperate.png";
+import dyingEmote from "../assets/emotes/dying.png";
+import happyEmote from "../assets/emotes/happy.png";
+import noproblemEmote from "../assets/emotes/noproblem.png";
+import playingcoolEmote from "../assets/emotes/playingcool.png";
+import respectEmote from "../assets/emotes/respect.png";
+import sadEmote from "../assets/emotes/sad.png";
+import scaredEmote from "../assets/emotes/scared.png";
+import sorryEmote from "../assets/emotes/sorry.png";
+import thanksEmote from "../assets/emotes/thanks.png";
+import thinkingEmote from "../assets/emotes/thinking.png";
 import { useEffect, useState, type ComponentType } from "react";
 import { useAppState } from "../state";
 import type { OverlayCommand } from "../types";
@@ -36,7 +47,22 @@ const navigation: NavItem[] = [
   { id: "workshop", label: "桌宠唤醒", icon: Wand2 },
   { id: "training", label: "个性化 AI 训练", icon: Brain },
   { id: "modules", label: "模组管理", icon: Puzzle },
-  { id: "settings", label: "数据与设置", icon: Database }
+  { id: "settings", label: "设置", icon: Database }
+];
+
+const emotes = [
+  callEmote,
+  cooperateEmote,
+  dyingEmote,
+  happyEmote,
+  noproblemEmote,
+  playingcoolEmote,
+  respectEmote,
+  sadEmote,
+  scaredEmote,
+  sorryEmote,
+  thanksEmote,
+  thinkingEmote
 ];
 
 function currentViewLabel(view: string) {
@@ -46,6 +72,7 @@ function currentViewLabel(view: string) {
 export function AppShell() {
   const { state, updateState } = useAppState();
   const [busy, setBusy] = useState(false);
+  const [emoteIndex, setEmoteIndex] = useState(0);
 
   useEffect(() => {
     document.documentElement.dataset.theme =
@@ -139,12 +166,22 @@ export function AppShell() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">
-            <Monitor size={22} strokeWidth={2.2} />
-          </div>
+          <button
+            className="brand-mark"
+            type="button"
+            onClick={() => setEmoteIndex((index) => (index + 1) % emotes.length)}
+            title="点击切换表情"
+            aria-label="切换表情"
+          >
+            <img
+              key={emoteIndex}
+              src={emotes[emoteIndex]}
+              alt="卫戍表情"
+              draggable={false}
+            />
+          </button>
           <div>
-              <strong>ArkPet</strong>
-            <span>本地角色工作台</span>
+            <strong>Ark<span className="brand-pet">Pet</span></strong>
           </div>
         </div>
 

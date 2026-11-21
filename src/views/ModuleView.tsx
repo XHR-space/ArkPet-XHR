@@ -245,9 +245,6 @@ export function ModuleManagerView() {
         <div>
           <span className="section-kicker">模组管理</span>
           <h2>添加外部模组包</h2>
-          <p>
-            选择一个包含 module.json 或 manifest.json 的模组文件夹。导入后，需要在桌宠制作里绑定，右键菜单才会显示。
-          </p>
         </div>
           <div className="module-heading-actions">
             <button
@@ -271,7 +268,6 @@ export function ModuleManagerView() {
               <div>
                 <span className="section-kicker">仓库模组库</span>
                 <strong>官方与本地模组</strong>
-                <p>仓库模组来自 `module-registry/registry.json`，内置和本地已安装模组也会一起列出。</p>
               </div>
               <button
                 type="button"

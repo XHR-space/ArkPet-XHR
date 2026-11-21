@@ -278,9 +278,6 @@ export function ModelManagerView() {
       <div className="section-heading">
         <span className="section-kicker">本地模型</span>
         <h2>模型文件检查与挂载</h2>
-        <p>
-          软件不负责下载模型。你选择已经下载好的本地文件或文件夹后，它会识别格式、检查必需文件并登记到本地模型库。
-        </p>
       </div>
 
       <div className="tts-engine-panel">
@@ -652,10 +649,6 @@ export function ModelManagerView() {
           <span className="model-family-chip">Mistral</span>
           <span className="model-family-chip">Gemma</span>
         </div>
-        <p>
-          Qwen 与 DeepSeek 作为首版重点适配；GGUF、Llama、Mistral 和 Gemma
-          保留同样的接入位置，后续增加适配包即可启用。
-        </p>
       </section>
 
       <div className="model-library-list">

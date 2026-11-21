@@ -5,8 +5,6 @@ import {
   Play,
   Plus,
   RotateCcw,
-  Sparkles,
-  TestTubeDiagonal,
   X
 } from "lucide-react";
 import { PetAvatar } from "../components/PetAvatar";
@@ -62,12 +60,6 @@ export function WakeView({ petMode }: { petMode: PetMode }) {
         <div className="section-heading">
           <span className="section-kicker">物理与待机</span>
           <h2>调整桌面行为</h2>
-          <p>出现与收回统一使用右上角的状态按钮，这里保留走路、摩擦力和待机动作设置。</p>
-        </div>
-
-        <div className="inline-note">
-          <TestTubeDiagonal size={18} />
-          <p>拖动桌宠后松手，会继承拖动速度并自动掉落到任务栏上方。</p>
         </div>
 
         <div className="motion-settings">
@@ -160,10 +152,6 @@ export function WakeView({ petMode }: { petMode: PetMode }) {
             />
             <strong>{state.settings.overlay.groundBounce}%</strong>
           </label>
-
-          <p className="idle-help">
-            走路速度会同步调整移动距离和走路动画速度，不影响待机动画。摩擦力会衰减抓取后甩出的惯性，不影响正常行走。
-          </p>
         </div>
 
         <div className="idle-settings">
@@ -234,10 +222,68 @@ export function WakeView({ petMode }: { petMode: PetMode }) {
             />
             <strong>{state.settings.overlay.idleActionChance}%</strong>
           </label>
+        </div>
 
-          <p className="idle-help">
-            每隔设定时间进行一次概率判断。触发后会完整播放待机动作，只有鼠标拖动才能打断。
-          </p>
+        <div className="pet-size-panel">
+          <div className="idle-settings-heading">
+            <div>
+              <span className="section-kicker">桌宠尺寸</span>
+              <strong>当前 {Math.round(state.settings.overlay.scale * 100)}%</strong>
+            </div>
+            <button
+              className="motion-reset"
+              type="button"
+              onClick={() => saveOverlay({ scale: 1 })}
+            >
+              <RotateCcw size={14} />
+              恢复默认值
+            </button>
+          </div>
+          <label className="idle-range motion-range">
+            <span>显示大小</span>
+            <input
+              type="range"
+              min="0.6"
+              max="1.6"
+              step="0.05"
+              value={state.settings.overlay.scale}
+              onChange={(event) =>
+                saveOverlay({
+                  scale: Number(event.target.value)
+                })
+              }
+            />
+            <strong>{Math.round(state.settings.overlay.scale * 100)}%</strong>
+          </label>
+        </div>
+
+        <div
+          className={
+            summonedPets.length > 1
+              ? "pet-interaction-panel"
+              : "pet-interaction-panel pet-interaction-panel--disabled"
+          }
+        >
+          <div className="idle-settings-heading">
+            <div>
+              <span className="section-kicker">桌宠相遇</span>
+              <strong>相互穿过概率</strong>
+            </div>
+            <span>{state.settings.overlay.passThroughChance}%</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="5"
+            disabled={summonedPets.length <= 1}
+            value={state.settings.overlay.passThroughChance}
+            onChange={(event) =>
+              saveOverlay({
+                passThroughChance: Number(event.target.value)
+              })
+            }
+          />
         </div>
       </section>
 
@@ -343,7 +389,6 @@ export function WakeView({ petMode }: { petMode: PetMode }) {
         <div className="section-heading">
           <span className="section-kicker">模组区</span>
           <h2>角色模组</h2>
-          <p>添加后可在这里直接调整模组。</p>
         </div>
         <div className="wake-module-list">
           {state.customModules
@@ -502,11 +547,6 @@ export function WakeView({ petMode }: { petMode: PetMode }) {
           <div>
             <span className="section-kicker">移动模式</span>
             <strong>解除重力锁定</strong>
-            <p>
-              {state.settings.overlay.gravityLocked
-                ? "关闭后，桌宠可以离开地面，在整个桌面区域移动。"
-                : "当前桌宠不锁地面，会自由移动；摩擦力仍会衰减抛掷后的弹动。"}
-            </p>
           </div>
           <button
             className={
@@ -525,41 +565,6 @@ export function WakeView({ petMode }: { petMode: PetMode }) {
               ? "解除重力锁定"
               : "恢复重力锁定"}
           </button>
-        </div>
-        <div className="pet-size-panel">
-          <div className="idle-settings-heading">
-            <div>
-              <span className="section-kicker">桌宠尺寸</span>
-              <strong>当前 {Math.round(state.settings.overlay.scale * 100)}%</strong>
-            </div>
-            <button
-              className="motion-reset"
-              type="button"
-              onClick={() => saveOverlay({ scale: 1 })}
-            >
-              <RotateCcw size={14} />
-              恢复默认值
-            </button>
-          </div>
-          <label className="idle-range motion-range">
-            <span>显示大小</span>
-            <input
-              type="range"
-              min="0.6"
-              max="1.6"
-              step="0.05"
-              value={state.settings.overlay.scale}
-              onChange={(event) =>
-                saveOverlay({
-                  scale: Number(event.target.value)
-                })
-              }
-            />
-            <strong>{Math.round(state.settings.overlay.scale * 100)}%</strong>
-          </label>
-          <p className="idle-help">
-            默认尺寸为当前比例的 100%。尺寸只影响显示大小，不影响移动速度和摩擦力。
-          </p>
         </div>
         <div className="per-pet-window-panel">
           <div className="per-pet-window-head">
@@ -590,9 +595,6 @@ export function WakeView({ petMode }: { petMode: PetMode }) {
               <span />
             </button>
           </div>
-          <p className="per-pet-window-desc">
-            每只角色使用独立窗口，物理跑在碰撞体积上，可以先后被普通窗口遮挡。
-          </p>
           <div
             className={
               state.settings.overlay.perPetWindows === true
@@ -604,41 +606,6 @@ export function WakeView({ petMode }: { petMode: PetMode }) {
               ? "已开启：每只角色拥有独立窗口"
               : "未开启：当前使用旧的全屏叠层"}
           </div>
-        </div>
-        <div
-          className={
-            summonedPets.length > 1
-              ? "pet-interaction-panel"
-              : "pet-interaction-panel pet-interaction-panel--disabled"
-          }
-        >
-          <div className="idle-settings-heading">
-            <div>
-              <span className="section-kicker">桌宠相遇</span>
-              <strong>相互穿过概率</strong>
-            </div>
-            <span>{state.settings.overlay.passThroughChance}%</span>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            step="5"
-            disabled={summonedPets.length <= 1}
-            value={state.settings.overlay.passThroughChance}
-            onChange={(event) =>
-              saveOverlay({
-                passThroughChance: Number(event.target.value)
-              })
-            }
-          />
-          <p className="idle-help">
-            数值越高，多个桌宠相遇时越容易上下分层穿过；数值越低，越容易碰撞后反向。
-          </p>
-        </div>
-        <div className="inline-note">
-          <Sparkles size={18} />
-          <p>后续会加入桌面图标攀爬、窗口上檐移动和跨越辅助窗口。</p>
         </div>
       </section>
     </div>

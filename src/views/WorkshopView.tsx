@@ -1835,9 +1835,6 @@ export function WorkshopView() {
                 <AudioLines size={17} />
                 <h3>角色语音</h3>
               </div>
-              <p className="voice-line-hint">
-                导入 WAV 音频后，桌宠在桌面上会按下面的间隔随机说话：时间到了也有概率说、有概率不说。
-              </p>
               <label className="voice-line-toggle">
                 <span>启用角色语音</span>
                 <input
@@ -1929,14 +1926,10 @@ export function WorkshopView() {
                 <div>
                   <span className="section-kicker">AI 自动输出</span>
                   <strong>{pet.name} 的自主行为</strong>
-                  <p>
-                    两个开关互相独立。关闭自动文字后，随机角色语音仍然可以播放；右键手动对话不受影响。
-                  </p>
                 </div>
                 <div className="auto-dialogue-row">
                   <div>
                     <strong>自动文字</strong>
-                    <span>让 AI 主动生成文字对话</span>
                   </div>
                   <button
                     className={
@@ -1962,7 +1955,6 @@ export function WorkshopView() {
                 <div className="auto-dialogue-row">
                   <div>
                     <strong>自动语音</strong>
-                    <span>控制 AI 语音与随机角色语音</span>
                   </div>
                   <button
                     className={

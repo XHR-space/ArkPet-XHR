@@ -403,9 +403,6 @@ export function VoiceModuleView({
       <div className="section-heading">
         <span className="section-kicker">声音模块</span>
         <h2>固定声音编辑区</h2>
-        <p>
-          新样本先进入编辑区，只有点击保存后才会出现在模块库。编辑过程中不会反复新增模块卡片。
-        </p>
       </div>
 
       <section
@@ -419,7 +416,6 @@ export function VoiceModuleView({
           <AudioLines size={26} />
         </div>
         <div className="voice-hero-info">
-          <span className="voice-hero-kicker">当前选中的声音模块</span>
           <strong>{selectedVoiceProfile?.name || "还没有声音模块"}</strong>
           <div className="voice-hero-meta">
             {selectedVoiceProfile ? (

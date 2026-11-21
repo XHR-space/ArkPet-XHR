@@ -104,7 +104,6 @@ function PetHero({
       <div className="hero-copy">
         <span className="section-kicker">今天的桌宠</span>
         <h2>{pet.name}</h2>
-        <p>{pet.description}</p>
         <div className="mood-line">
           <span>心情：{mood}</span>
           <span>精力：{Math.round(energy)}%</span>

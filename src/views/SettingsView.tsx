@@ -1,5 +1,6 @@
 import {
   ArchiveRestore,
+  ChevronRight,
   FolderInput,
   FolderOpen,
   HardDriveDownload,
@@ -215,7 +216,6 @@ export function SettingsView() {
             <div className="section-heading">
               <span className="section-kicker">皮肤主题</span>
               <h2>选择整套界面配色</h2>
-              <p>主题会保存在本机，重新打开软件后继续使用当前选择。</p>
             </div>
             <div className="theme-grid">
               {themeOptions.map((theme) => {
@@ -316,10 +316,6 @@ export function SettingsView() {
             <div className="section-heading">
               <span className="section-kicker">数据安全</span>
               <h2>管理本机保存的数据</h2>
-              <p>
-                状态文件、图片素材和声音样本都保存在当前电脑的数据目录中，
-                可以手动更改存放位置。
-              </p>
             </div>
             <div className="data-path">
               <FolderOpen size={20} />
@@ -335,9 +331,6 @@ export function SettingsView() {
                   <code>{paths?.dataPath || "正在读取..."}</code>
                 </div>
               </div>
-              <p className="idle-help">
-                自动更新只替换程序文件，保留 data 目录。可以点击下方「更改数据位置」把数据移动到别的文件夹。
-              </p>
             {dataMoveHint && <p className="data-move-hint">{dataMoveHint}</p>}
             <div className="data-action-grid">
               <button
@@ -350,6 +343,7 @@ export function SettingsView() {
                   <strong>打开用户数据</strong>
                   <span>在文件管理器中打开 user-data 目录</span>
                 </div>
+                <ChevronRight size={16} className="data-action-arrow" />
               </button>
               <button
                 type="button"
@@ -361,6 +355,7 @@ export function SettingsView() {
                   <strong>打开软件目录</strong>
                   <span>打开软件安装所在的文件夹</span>
                 </div>
+                <ChevronRight size={16} className="data-action-arrow" />
               </button>
               <button
                 type="button"
@@ -375,6 +370,7 @@ export function SettingsView() {
                   <strong>保存独立角色文件</strong>
                   <span>把每个桌宠的配置导出为独立存档文件</span>
                 </div>
+                <ChevronRight size={16} className="data-action-arrow" />
               </button>
               <button
                 type="button"
@@ -386,6 +382,7 @@ export function SettingsView() {
                   <strong>打开角色存档</strong>
                   <span>打开角色存档所在的文件夹</span>
                 </div>
+                <ChevronRight size={16} className="data-action-arrow" />
               </button>
               <button
                 type="button"
@@ -398,6 +395,7 @@ export function SettingsView() {
                   <strong>{backupBusy ? "正在导出…" : "导出备份"}</strong>
                   <span>把全部数据打包复制到指定文件夹</span>
                 </div>
+                <ChevronRight size={16} className="data-action-arrow" />
               </button>
               <button
                 type="button"
@@ -410,6 +408,7 @@ export function SettingsView() {
                   <strong>{backupBusy ? "正在导入…" : "导入备份"}</strong>
                   <span>从备份文件恢复全部数据</span>
                 </div>
+                <ChevronRight size={16} className="data-action-arrow" />
               </button>
               <button
                 type="button"
@@ -421,6 +420,7 @@ export function SettingsView() {
                   <strong>更改数据位置</strong>
                   <span>把数据移动到新的文件夹，重启后生效</span>
                 </div>
+                <ChevronRight size={16} className="data-action-arrow" />
               </button>
             </div>
           </div>
@@ -431,7 +431,6 @@ export function SettingsView() {
             <div className="section-heading">
               <span className="section-kicker">应用控制</span>
               <h2>本地运行状态</h2>
-                <p>除检查更新外，应用不需要登录或联网。关闭管理台时会隐藏到后台，桌宠继续运行。</p>
             </div>
               <div className="update-panel">
                 <div>

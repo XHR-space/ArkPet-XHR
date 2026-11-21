@@ -13,6 +13,7 @@ const {
 } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
+const APP_ICON = path.join(__dirname, "..", "build", "icon.ico");
 const os = require("node:os");
 const crypto = require("node:crypto");
 const readline = require("node:readline");
@@ -1187,6 +1188,7 @@ function createControlWindow() {
     minWidth: 1080,
     minHeight: 720,
     title: "ArkPet",
+    icon: APP_ICON,
     titleBarStyle: "hidden",
     titleBarOverlay: {
       color: "#00000000",
@@ -1624,6 +1626,7 @@ function createAuxiliaryWindow(config) {
     minWidth: 320,
     minHeight: 220,
     title: config.title || config.name || "辅助窗口",
+    icon: APP_ICON,
     autoHideMenuBar: true,
     backgroundColor: "#f7f5ef",
     webPreferences: {
@@ -1881,6 +1884,7 @@ function createChatWindow(mode, dialogModuleId, anchorValue) {
     minWidth: 360,
     minHeight: 420,
     title: mode === "voice" ? "桌宠语音对话" : "桌宠文字对话",
+    icon: APP_ICON,
     autoHideMenuBar: true,
     backgroundColor: dialogModule?.background || "#f7f5ef",
     alwaysOnTop: false,
@@ -2537,6 +2541,7 @@ function openExternalModuleWindow(moduleId) {
     width: module.width,
     height: module.height,
     title: module.name,
+    icon: APP_ICON,
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
@@ -2649,6 +2654,7 @@ function triggerModuleAction(moduleId, petId = "default", origin = null) {
     width,
     height,
     title: module.windowTitle || module.name,
+    icon: APP_ICON,
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
